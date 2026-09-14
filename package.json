@@ -18,9 +18,36 @@
     "watchapp": {
       "watchface": true
     },
-    "messageKeys": [],
+    "messageKeys": [
+      "SUNRISE",
+      "SUNSET",
+      "REQUEST_SUN"
+    ],
     "resources": {
-      "media": []
-    }
+      "media": [
+        {
+          "type": "font",
+          "name": "FONT_RUSSO_68",
+          "file": "fonts/RussoOne-Regular.ttf",
+          "characterRegex": "[0-9:]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_RUSSO_26",
+          "file": "fonts/RussoOne-Regular.ttf",
+          "characterRegex": "[0-9:/%A-ZÁÉ-]"
+        },
+        {
+          "type": "font",
+          "name": "FONT_RUSSO_20",
+          "file": "fonts/RussoOne-Regular.ttf",
+          "characterRegex": "[0-9:/%A-ZÁÉ-]"
+        }
+      ]
+    },
+    "capabilities": [
+      "health",
+      "location"
+    ]
   }
 }

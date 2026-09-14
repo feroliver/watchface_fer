@@ -57,11 +57,11 @@ del emulador emery para revisar el layout.
 ## Estructura del proyecto
 
 ```
-package.json          Metadatos: UUID, nombre, plataformas, recursos, messageKeys
-wscript               Reglas de build (waf) — normalmente no se toca
-src/c/watchface_fer.c Código del watchface
-resources/            (a crear) fuentes, imágenes
-src/pkjs/             (a crear) JS del lado del teléfono, si hace falta clima/config
+package.json               Metadatos: UUID, nombre, plataformas, capabilities, fuentes, messageKeys
+wscript                    Reglas de build (waf) — normalmente no se toca
+src/c/watchface_fer.c      Watchface (C): dibujo y datos del reloj
+src/pkjs/index.js          Lado teléfono (JS): ubicación + cálculo de amanecer/atardecer
+resources/fonts/           Russo One (RussoOne-Regular.ttf) + su licencia OFL.txt
 ```
 
 Datos fijos de `package.json`:
@@ -69,12 +69,53 @@ Datos fijos de `package.json`:
   en el reloj (cambiarlo instala una app distinta).
 - `watchapp.watchface: true`.
 
+## Diseño
+
+Basado en la watchface **Typical Outdoor** (rukari / @hidea, emery):
+https://apps.repebble.com/typical-outdoor_246967574a054baa90f691bf ·
+código: https://github.com/hidea/typical-outdoor-watchface
+
+⚠️ Ese repo **no tiene licencia** (todos los derechos reservados): se toma la idea
+visual como referencia, pero **no se copia su código**. Todo el código de este repo es propio.
+
+Layout (200×228), todo dibujado en un único `Layer` (`canvas_update_proc`), una función por zona:
+- Marco redondeado blanco alrededor de la pantalla.
+- **Arriba izquierda — fecha en castellano** (pedido de Fer):
+  - Línea 1: `DD/MES` con día de 2 dígitos y mes en 3 letras mayúsculas → `24/ENE`, `02/JUN`.
+  - Línea 2: día de la semana en 3 letras → `DOM LUN MAR MIÉ JUE VIE SÁB` (con tilde).
+  - Se arma con tablas propias `MONTHS`/`WEEKDAYS`, no con `strftime` (que da inglés).
+- **Arriba derecha**: recuadro con corazón + pulso (Pebble Health, `--` si no hay dato).
+- **Centro**: hora grande (Russo One 68), sin cero inicial, respeta 12/24 h.
+- **Abajo izquierda**: pila dibujada (verde > 40 %, amarilla ≤ 40 %, roja ≤ 20 %) + porcentaje.
+- **Abajo derecha**: ▲ amanecer / ▼ atardecer.
+
+Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
+`FONT_RUSSO_68` (hora, solo `[0-9:]`), `FONT_RUSSO_26` (pulso, sol), `FONT_RUSSO_20`
+(fecha, batería). Si se agregan caracteres nuevos al texto (p. ej. otras letras con tilde),
+**ampliar el `characterRegex`** o no se dibujan.
+
+### Amanecer / atardecer
+- `src/pkjs/index.js` pide la ubicación al teléfono (`capabilities: location`) y calcula
+  con la "sunrise equation" (días julianos). Verificado contra valores publicados
+  (Buenos Aires, Ushuaia) con error ≤ 1–2 min; devuelve -1 en día/noche polar.
+- Envía `SUNRISE`/`SUNSET` (minutos desde medianoche local) al abrir la watchface;
+  el reloj pide recálculo con `REQUEST_SUN` al cambiar el día. Se guardan con `persist`.
+
 ## Estado actual
 
-- Esqueleto funcional: fondo negro, hora (`FONT_KEY_LECO_42_NUMBERS`, respeta 12/24 h)
-  y fecha abajo (`%a %d %b`), actualización cada minuto con `tick_timer_service`.
-- Probado en el emulador emery (compila y se ve bien).
-- **Pendiente: definir el diseño propio de Fer** (el esqueleto es un placeholder).
+- v1 funcional con el diseño de arriba, tema único blanco sobre negro. Probado en el
+  emulador emery (fecha, tildes, pulso con `emu-heart-rate`, niveles de batería).
+- Ideas pendientes / a decidir con Fer: temas de color, configuración desde el teléfono,
+  aviso de desconexión Bluetooth, pasos.
+
+## Tips del emulador
+
+- `pebble emu-set-time` **no cambia la fecha** que ve la watchface; para probar fechas,
+  hacer un build temporal forzando `s_now` (y volver al código original antes de commitear).
+- La watchface redibuja por tick de minuto: tras cambiar algo del emulador, reinstalar
+  (`pebble install --emulator emery`) para ver el efecto inmediato.
+- Tras cambiar `messageKeys` en `package.json` hacer `pebble clean` antes de `pebble build`
+  (si no, aparecen errores `MESSAGE_KEY_* undeclared`).
 
 ## Git
 
@@ -92,8 +133,7 @@ Datos fijos de `package.json`:
   `SECOND_UNIT` y timers frecuentes. Pedir datos al teléfono con moderación.
 - Buffers de texto de `TextLayer` deben ser `static` (el layer guarda el puntero).
 - Colores: usar `GColor*` y `PBL_IF_COLOR_ELSE` si se agregan plataformas B/N.
-- Localización de la fecha: `strftime` usa el locale del reloj; los nombres en español
-  pueden requerir tablas propias si el firmware no los da.
+- Textos visibles en castellano. Identificadores en inglés, comentarios en castellano.
 
 ## Documentación
 

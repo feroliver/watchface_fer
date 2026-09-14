@@ -78,7 +78,8 @@ Datos fijos de `package.json`:
 
 ## Git
 
-- Repo local en la rama `main`, sin remoto por ahora.
+- Repo **público**: https://github.com/feroliver/watchface_fer (remoto `origin` por SSH, rama `main`).
+- Al ser público, no commitear datos privados (tokens, API keys de clima, ubicación, etc.).
 - `build/`, `*.pbw` y `.lock-waf*` están en `.gitignore`, porque se generan al compilar.
 - Mensajes de commit en español.
 

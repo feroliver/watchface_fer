@@ -1,0 +1,26 @@
+{
+  "name": "watchface_fer",
+  "author": "Fer",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Watchface Fer",
+    "uuid": "611e739a-8f35-471b-8aed-4b493e3ecb9e",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "messageKeys": [],
+    "resources": {
+      "media": []
+    }
+  }
+}

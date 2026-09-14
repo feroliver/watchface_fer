@@ -187,7 +187,25 @@ function forgetSession() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// ── Rangos de color ──────────────────────────────────────────────────────────────
+
+var DEFAULT_RANGES = { redLow: 50, targetLow: 80, targetHigh: 130, redHigh: 250 };
+
+// Umbrales configurados (strings de Clay) -> números válidos. Si falta o no es un
+// número se usa el valor por defecto; si quedaron desordenados se ordenan.
+function parseRanges(settings) {
+  var keys = ['redLow', 'targetLow', 'targetHigh', 'redHigh'];
+  var fields = ['GLUCOSE_RED_LOW', 'GLUCOSE_TARGET_LOW', 'GLUCOSE_TARGET_HIGH', 'GLUCOSE_RED_HIGH'];
+  var values = fields.map(function (field, i) {
+    var n = parseInt(settings[field], 10);
+    return isNaN(n) ? DEFAULT_RANGES[keys[i]] : Math.max(20, Math.min(600, n));
+  }).sort(function (a, b) { return a - b; });
+  return { redLow: values[0], targetLow: values[1], targetHigh: values[2], redHigh: values[3] };
+}
+
 module.exports = {
+  DEFAULT_RANGES: DEFAULT_RANGES,
+  parseRanges: parseRanges,
   fetchLatest: fetchLatest,
   forgetSession: forgetSession,
   sha256Hex: sha256Hex,

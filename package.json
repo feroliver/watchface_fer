@@ -29,6 +29,10 @@
       "GLUCOSE_TREND",
       "GLUCOSE_TIME",
       "REQUEST_GLUCOSE",
+      "GLUCOSE_RED_LOW",
+      "GLUCOSE_TARGET_LOW",
+      "GLUCOSE_TARGET_HIGH",
+      "GLUCOSE_RED_HIGH",
       "ICS_URL",
       "LLU_EMAIL",
       "LLU_PASSWORD"

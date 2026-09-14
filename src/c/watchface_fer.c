@@ -18,6 +18,7 @@
 #define BOTTOM_H 64
 #define PERSIST_KEY_EVENTS 2
 #define PERSIST_KEY_GLUCOSE 3
+#define PERSIST_KEY_RANGES 4
 #define EVENTS_REFRESH_MIN 30
 #define GLUCOSE_REFRESH_MIN 2
 #define GLUCOSE_STALE_S (10 * 60)  // lectura más vieja que esto: "G ---"
@@ -40,6 +41,14 @@ typedef struct {
   int32_t time;   // momento de la lectura (Unix), 0 si no hay
 } Glucose;
 
+// Umbrales de color en mg/dL, configurables desde el teléfono.
+typedef struct {
+  int32_t red_low;      // por debajo: rojo
+  int32_t target_low;   // objetivo (verde) desde…
+  int32_t target_high;  // …hasta, inclusive
+  int32_t red_high;     // por encima: rojo; entre objetivo y rojo: amarillo
+} GlucoseRanges;
+
 static Window *s_window;
 static Layer *s_canvas;
 static GFont s_font_time;
@@ -49,6 +58,7 @@ static GFont s_font_small;
 static struct tm s_now;
 static BatteryChargeState s_battery;
 static Glucose s_glucose;
+static GlucoseRanges s_ranges = { 50, 80, 130, 250 };
 static Events s_events;
 
 // ── Dibujo ────────────────────────────────────────────────────────────────────
@@ -89,6 +99,16 @@ static void draw_trend_arrow(GContext *ctx, GPoint center, int trend) {
   gpath_destroy(path);
 }
 
+static GColor glucose_color(int32_t value) {
+  if (value < s_ranges.red_low || value > s_ranges.red_high) {
+    return GColorRed;
+  }
+  if (value < s_ranges.target_low || value > s_ranges.target_high) {
+    return GColorYellow;
+  }
+  return GColorGreen;
+}
+
 static bool glucose_is_fresh(void) {
   return s_glucose.time != 0 && time(NULL) - s_glucose.time <= GLUCOSE_STALE_S;
 }
@@ -107,24 +127,29 @@ static void draw_date(GContext *ctx, GRect area) {
 static void draw_glucose(GContext *ctx, GRect area) {
   graphics_context_set_stroke_width(ctx, 2);
   graphics_draw_round_rect(ctx, area, 8);
-  draw_text(ctx, "G", s_font_small, GRect(area.origin.x + 8, area.origin.y + 10, 16, 28),
+  draw_text(ctx, "G", s_font_small, GRect(area.origin.x + 6, area.origin.y + 10, 16, 28),
             GTextAlignmentLeft);
 
   bool fresh = glucose_is_fresh();
   char value[12];
   if (fresh) {
     snprintf(value, sizeof(value), "%d", (int)s_glucose.value);
+    GColor color = glucose_color(s_glucose.value);
+    graphics_context_set_text_color(ctx, color);
+    graphics_context_set_fill_color(ctx, color);
   } else {
     strcpy(value, "---");
   }
   draw_text(ctx, value, s_font_medium,
-            GRect(area.origin.x + 24, area.origin.y + 6, area.size.w - 52, 32),
+            GRect(area.origin.x + 20, area.origin.y + 6, area.size.w - 44, 32),
             GTextAlignmentRight);
 
   if (fresh && s_glucose.trend >= 1 && s_glucose.trend <= 5) {
-    draw_trend_arrow(ctx, GPoint(area.origin.x + area.size.w - 15,
+    draw_trend_arrow(ctx, GPoint(area.origin.x + area.size.w - 13,
                                  area.origin.y + area.size.h / 2), (int)s_glucose.trend);
   }
+  graphics_context_set_text_color(ctx, GColorWhite);
+  graphics_context_set_fill_color(ctx, GColorWhite);
 }
 
 static void draw_time(GContext *ctx, GRect area) {
@@ -278,6 +303,19 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     persist_write_data(PERSIST_KEY_GLUCOSE, &s_glucose, sizeof(s_glucose));
     layer_mark_dirty(s_canvas);
   }
+
+  Tuple *red_low = dict_find(iter, MESSAGE_KEY_GLUCOSE_RED_LOW);
+  Tuple *target_low = dict_find(iter, MESSAGE_KEY_GLUCOSE_TARGET_LOW);
+  Tuple *target_high = dict_find(iter, MESSAGE_KEY_GLUCOSE_TARGET_HIGH);
+  Tuple *red_high = dict_find(iter, MESSAGE_KEY_GLUCOSE_RED_HIGH);
+  if (red_low && target_low && target_high && red_high) {
+    s_ranges.red_low = red_low->value->int32;
+    s_ranges.target_low = target_low->value->int32;
+    s_ranges.target_high = target_high->value->int32;
+    s_ranges.red_high = red_high->value->int32;
+    persist_write_data(PERSIST_KEY_RANGES, &s_ranges, sizeof(s_ranges));
+    layer_mark_dirty(s_canvas);
+  }
 }
 
 // ── Ciclo de vida ─────────────────────────────────────────────────────────────
@@ -306,6 +344,9 @@ static void init(void) {
   }
   if (persist_exists(PERSIST_KEY_GLUCOSE)) {
     persist_read_data(PERSIST_KEY_GLUCOSE, &s_glucose, sizeof(s_glucose));
+  }
+  if (persist_exists(PERSIST_KEY_RANGES)) {
+    persist_read_data(PERSIST_KEY_RANGES, &s_ranges, sizeof(s_ranges));
   }
 
   s_window = window_create();

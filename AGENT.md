@@ -89,7 +89,8 @@ Layout (200×228), todo dibujado en un único `Layer` (`canvas_update_proc`), un
   - Se arma con tablas propias `MONTHS`/`WEEKDAYS`, no con `strftime` (que da inglés).
 - **Arriba derecha — glucosa** (pedido de Fer, reemplazó al pulso): recuadro `G 120 →`
   en mg/dL con flecha de tendencia (↓ ↘ → ↗ ↑). `G ---` si la lectura tiene más de 10 min
-  (`GLUCOSE_STALE_S`) o no hay datos. Ver sección "Glucosa".
+  (`GLUCOSE_STALE_S`) o no hay datos. El número y la flecha van coloreados según rangos
+  configurables (ver "Colores por rango"). Ver sección "Glucosa".
 - **Centro**: hora grande (Russo One 68), sin cero inicial, respeta 12/24 h.
 - **Abajo izquierda**: pila dibujada (verde > 40 %, amarilla ≤ 40 %, roja ≤ 20 %) + porcentaje.
 - **Abajo derecha — eventos del calendario** (pedido de Fer, reemplazó a amanecer/atardecer):
@@ -130,6 +131,17 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
   puede mandar un AppMessage mientras otro está en curso).
 - Si falla (sin red, credenciales, términos) no se envía nada y el error va a `console.log`
   (`pebble logs`); en el reloj la lectura envejece y pasa a `G ---`.
+- **Colores por rango** (pedido de Fer), configurables en Clay, en mg/dL. Por defecto
+  rojo < 50 ≤ amarillo < 80 ≤ **verde** ≤ 130 < amarillo ≤ 250 < rojo:
+  - Verde: `target_low` ≤ valor ≤ `target_high` (límites incluidos).
+  - Amarillo: fuera del objetivo pero `red_low` ≤ valor ≤ `red_high`.
+  - Rojo: valor < `red_low` o valor > `red_high`.
+  - Se colorean número y flecha; "G", recuadro y `---` quedan blancos.
+  - `parseRanges` (en `glucose.js`) valida: vacío/no numérico → defecto, límita a 20–600
+    y ordena los 4 valores si el usuario los cargó desordenados.
+  - El teléfono los manda (`GLUCOSE_RED_LOW`, `GLUCOSE_TARGET_LOW`, `GLUCOSE_TARGET_HIGH`,
+    `GLUCOSE_RED_HIGH`) al abrir la watchface y al guardar la configuración; el reloj los
+    guarda con `persist` (colorea aunque no haya teléfono). Defaults también en el C.
 - Pendiente de verificar en el teléfono real: que la app Pebble de Android deje hacer las
   requests a libreview.io (y que Cloudflare no las bloquee).
 
@@ -163,7 +175,10 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
   end-to-end (calendario de prueba servido en localhost, paso de "próximo" a "anterior").
 - Glucosa probada con tests en node (redirect de región, reuso y renovación de token,
   términos pendientes, contraseña mala, SHA-256 contra `crypto`) y en el emulador contra un
-  servidor LibreLinkUp simulado (lectura, tendencias, refresco cada 2 min, `G ---`).
+  servidor LibreLinkUp simulado (lectura, tendencias, refresco cada 2 min, `G ---`,
+  colores en los bordes de cada rango con valores por defecto y personalizados).
+- La página de configuración (Clay) no se probó visualmente (en el emulador depende de un
+  proxy externo); revisarla en la app de Pebble del teléfono.
 - Falta probar en el reloj real con el Google Calendar y la cuenta LibreLinkUp de Fer.
 - Ideas pendientes / a decidir con Fer: temas de color, aviso de desconexión Bluetooth,
   pasos, varios calendarios.

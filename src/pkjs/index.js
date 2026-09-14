@@ -87,9 +87,21 @@ function updateGlucose() {
   });
 }
 
+// Los rangos se guardan en el reloj: el color funciona aunque no haya teléfono.
+function sendRanges() {
+  var ranges = glucose.parseRanges(settings());
+  send({
+    GLUCOSE_RED_LOW: ranges.redLow,
+    GLUCOSE_TARGET_LOW: ranges.targetLow,
+    GLUCOSE_TARGET_HIGH: ranges.targetHigh,
+    GLUCOSE_RED_HIGH: ranges.redHigh
+  });
+}
+
 // ── Eventos de PebbleKit JS ──────────────────────────────────────────────────────
 
 Pebble.addEventListener('ready', function () {
+  sendRanges();
   updateGlucose();
   updateEvents();
 });
@@ -111,6 +123,7 @@ Pebble.addEventListener('webviewclosed', function (e) {
   if (e && e.response) {
     clay.getSettings(e.response);  // guarda la configuración en localStorage
     glucose.forgetSession();       // por si cambió la cuenta
+    sendRanges();
     updateGlucose();
     updateEvents();
   }

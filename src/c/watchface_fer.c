@@ -4,8 +4,8 @@
 // "Typical Outdoor" de rukari/@hidea; código propio.
 //
 //  ┌──────────────────────────────┐
-//  │  14/SEP      ┌────────────┐  │  zona superior: fecha + pulso
-//  │    LUN       │  ♥   72    │  │
+//  │  14/SEP      ┌────────────┐  │  zona superior: fecha + glucosa
+//  │    LUN       │ G  120  →  │  │  (LibreLinkUp, vía teléfono)
 //  │              └────────────┘  │
 //  │           17:29              │  zona central: hora
 //  │  ┌──────┐     ▲  9:30        │  zona inferior: batería + eventos
@@ -17,8 +17,10 @@
 #define TOP_H 58
 #define BOTTOM_H 64
 #define PERSIST_KEY_EVENTS 2
+#define PERSIST_KEY_GLUCOSE 3
 #define EVENTS_REFRESH_MIN 30
-#define NO_DATA -1
+#define GLUCOSE_REFRESH_MIN 2
+#define GLUCOSE_STALE_S (10 * 60)  // lectura más vieja que esto: "G ---"
 
 static const char *const MONTHS[] = {
   "ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC",
@@ -32,6 +34,12 @@ typedef struct {
   int32_t next;  // inicio del próximo evento
 } Events;
 
+typedef struct {
+  int32_t value;  // mg/dL
+  int32_t trend;  // 1 bajando rápido … 3 estable … 5 subiendo rápido, 0 sin dato
+  int32_t time;   // momento de la lectura (Unix), 0 si no hay
+} Glucose;
+
 static Window *s_window;
 static Layer *s_canvas;
 static GFont s_font_time;
@@ -40,7 +48,7 @@ static GFont s_font_small;
 
 static struct tm s_now;
 static BatteryChargeState s_battery;
-static int s_heart_rate = NO_DATA;
+static Glucose s_glucose;
 static Events s_events;
 
 // ── Dibujo ────────────────────────────────────────────────────────────────────
@@ -57,11 +65,32 @@ static void fill_triangle(GContext *ctx, GPoint a, GPoint b, GPoint c) {
   gpath_destroy(path);
 }
 
-static void draw_heart(GContext *ctx, GPoint center) {
-  graphics_fill_circle(ctx, GPoint(center.x - 4, center.y - 3), 4);
-  graphics_fill_circle(ctx, GPoint(center.x + 4, center.y - 3), 4);
-  fill_triangle(ctx, GPoint(center.x - 8, center.y - 1), GPoint(center.x + 8, center.y - 1),
-                GPoint(center.x, center.y + 8));
+// Flecha de tendencia (TrendArrow 1..5 = ↓ ↘ → ↗ ↑). Se definen → y ↘ con coordenadas
+// exactas y el resto se obtiene girando 90° o espejando: rotar un GPath tan chico a 45°
+// lo deforma.
+static void draw_trend_arrow(GContext *ctx, GPoint center, int trend) {
+  static const GPoint STRAIGHT[7] = { {-8, -3}, {0, -3}, {0, -8}, {9, 0}, {0, 8}, {0, 3}, {-8, 3} };
+  static const GPoint DIAGONAL[7] = { {-4, -8}, {3, -1}, {7, -5}, {7, 7}, {-5, 7}, {-1, 3}, {-8, -4} };
+  const GPoint *shape = (trend == 2 || trend == 4) ? DIAGONAL : STRAIGHT;
+  GPoint points[7];
+  for (int i = 0; i < 7; i++) {
+    int x = shape[i].x;
+    int y = shape[i].y;
+    switch (trend) {
+      case 1:  points[i] = GPoint(center.x - y, center.y + x); break;  // ↓
+      case 4:  points[i] = GPoint(center.x + x, center.y - y); break;  // ↗
+      case 5:  points[i] = GPoint(center.x + y, center.y - x); break;  // ↑
+      default: points[i] = GPoint(center.x + x, center.y + y); break;  // ↘ →
+    }
+  }
+  GPathInfo info = { .num_points = 7, .points = points };
+  GPath *path = gpath_create(&info);
+  gpath_draw_filled(ctx, path);
+  gpath_destroy(path);
+}
+
+static bool glucose_is_fresh(void) {
+  return s_glucose.time != 0 && time(NULL) - s_glucose.time <= GLUCOSE_STALE_S;
 }
 
 static void draw_date(GContext *ctx, GRect area) {
@@ -75,20 +104,27 @@ static void draw_date(GContext *ctx, GRect area) {
             GTextAlignmentCenter);
 }
 
-static void draw_heart_rate(GContext *ctx, GRect area) {
+static void draw_glucose(GContext *ctx, GRect area) {
   graphics_context_set_stroke_width(ctx, 2);
   graphics_draw_round_rect(ctx, area, 8);
-  draw_heart(ctx, GPoint(area.origin.x + 18, area.origin.y + area.size.h / 2 + 1));
+  draw_text(ctx, "G", s_font_small, GRect(area.origin.x + 8, area.origin.y + 10, 16, 28),
+            GTextAlignmentLeft);
 
-  char bpm[12];
-  if (s_heart_rate > 0) {
-    snprintf(bpm, sizeof(bpm), "%d", s_heart_rate);
+  bool fresh = glucose_is_fresh();
+  char value[12];
+  if (fresh) {
+    snprintf(value, sizeof(value), "%d", (int)s_glucose.value);
   } else {
-    strcpy(bpm, "--");
+    strcpy(value, "---");
   }
-  draw_text(ctx, bpm, s_font_medium,
-            GRect(area.origin.x + 30, area.origin.y + 6, area.size.w - 38, 32),
+  draw_text(ctx, value, s_font_medium,
+            GRect(area.origin.x + 24, area.origin.y + 6, area.size.w - 52, 32),
             GTextAlignmentRight);
+
+  if (fresh && s_glucose.trend >= 1 && s_glucose.trend <= 5) {
+    draw_trend_arrow(ctx, GPoint(area.origin.x + area.size.w - 15,
+                                 area.origin.y + area.size.h / 2), (int)s_glucose.trend);
+  }
 }
 
 static void draw_time(GContext *ctx, GRect area) {
@@ -178,8 +214,8 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   int inner_w = bounds.size.w - 2 * MARGIN;
   int bottom_y = bounds.size.h - MARGIN - BOTTOM_H;
 
-  draw_date(ctx, GRect(MARGIN, MARGIN + 2, 86, TOP_H - 4));
-  draw_heart_rate(ctx, GRect(MARGIN + 88, MARGIN + 4, inner_w - 92, 48));
+  draw_date(ctx, GRect(MARGIN, MARGIN + 2, 78, TOP_H - 4));
+  draw_glucose(ctx, GRect(MARGIN + 80, MARGIN + 4, inner_w - 84, 48));
   draw_time(ctx, GRect(MARGIN, MARGIN + TOP_H, inner_w, bottom_y - MARGIN - TOP_H));
   draw_battery(ctx, GRect(MARGIN + 4, bottom_y, 76, BOTTOM_H));
   draw_events(ctx, GRect(MARGIN + 88, bottom_y + 2, inner_w - 96, BOTTOM_H - 4));
@@ -187,12 +223,19 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
 
-static void request_events(void) {
+// Un solo mensaje con lo que haga falta: no se puede enviar otro mientras uno está en curso.
+static void request_data(bool glucose, bool events) {
   DictionaryIterator *iter;
-  if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
-    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_EVENTS, 1);
-    app_message_outbox_send();
+  if ((!glucose && !events) || app_message_outbox_begin(&iter) != APP_MSG_OK) {
+    return;
   }
+  if (glucose) {
+    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_GLUCOSE, 1);
+  }
+  if (events) {
+    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_EVENTS, 1);
+  }
+  app_message_outbox_send();
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -205,30 +248,14 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     s_events.next = 0;
     persist_write_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
   }
-  if (next_started || tick_time->tm_min % EVENTS_REFRESH_MIN == 0) {
-    request_events();
-  }
+  request_data(tick_time->tm_min % GLUCOSE_REFRESH_MIN == 0,
+               next_started || tick_time->tm_min % EVENTS_REFRESH_MIN == 0);
   layer_mark_dirty(s_canvas);
 }
 
 static void battery_handler(BatteryChargeState state) {
   s_battery = state;
   layer_mark_dirty(s_canvas);
-}
-
-static void update_heart_rate(void) {
-  time_t now = time(NULL);
-  if (health_service_metric_accessible(HealthMetricHeartRateBPM, now, now) &
-      HealthServiceAccessibilityMaskAvailable) {
-    s_heart_rate = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
-  }
-}
-
-static void health_handler(HealthEventType event, void *context) {
-  if (event == HealthEventHeartRateUpdate) {
-    update_heart_rate();
-    layer_mark_dirty(s_canvas);
-  }
 }
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
@@ -238,6 +265,17 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     s_events.prev = prev->value->int32;
     s_events.next = next->value->int32;
     persist_write_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
+    layer_mark_dirty(s_canvas);
+  }
+
+  Tuple *value = dict_find(iter, MESSAGE_KEY_GLUCOSE);
+  Tuple *trend = dict_find(iter, MESSAGE_KEY_GLUCOSE_TREND);
+  Tuple *read_at = dict_find(iter, MESSAGE_KEY_GLUCOSE_TIME);
+  if (value && trend && read_at) {
+    s_glucose.value = value->value->int32;
+    s_glucose.trend = trend->value->int32;
+    s_glucose.time = read_at->value->int32;
+    persist_write_data(PERSIST_KEY_GLUCOSE, &s_glucose, sizeof(s_glucose));
     layer_mark_dirty(s_canvas);
   }
 }
@@ -263,9 +301,11 @@ static void init(void) {
   time_t now = time(NULL);
   s_now = *localtime(&now);
   s_battery = battery_state_service_peek();
-  update_heart_rate();
   if (persist_exists(PERSIST_KEY_EVENTS)) {
     persist_read_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
+  }
+  if (persist_exists(PERSIST_KEY_GLUCOSE)) {
+    persist_read_data(PERSIST_KEY_GLUCOSE, &s_glucose, sizeof(s_glucose));
   }
 
   s_window = window_create();
@@ -278,7 +318,6 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   battery_state_service_subscribe(battery_handler);
-  health_service_events_subscribe(health_handler, NULL);
   app_message_register_inbox_received(inbox_received_handler);
   app_message_open(64, 32);
 }
@@ -286,7 +325,6 @@ static void init(void) {
 static void deinit(void) {
   tick_timer_service_unsubscribe();
   battery_state_service_unsubscribe();
-  health_service_events_unsubscribe();
   app_message_deregister_callbacks();
   window_destroy(s_window);
   fonts_unload_custom_font(s_font_time);

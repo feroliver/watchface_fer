@@ -1,31 +1,51 @@
-// Lado teléfono: descarga el calendario iCal configurado y manda al reloj la
-// hora de inicio del evento anterior y del próximo (segundos Unix, 0 = no hay).
+// Lado teléfono: calendario (evento anterior/próximo) y glucosa (LibreLinkUp).
+// Todo lo configurado (enlace iCal, cuenta LibreLinkUp) queda solo en el teléfono.
 
 var Clay = require('pebble-clay');
 var clayConfig = require('./config');
 var calendar = require('./calendar');
+var glucose = require('./glucose');
 
 var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
 
-function icsUrl() {
+function settings() {
   try {
-    var settings = JSON.parse(localStorage.getItem('clay-settings')) || {};
-    return (settings.ICS_URL || '').trim().replace(/^webcal:\/\//i, 'https://');
+    return JSON.parse(localStorage.getItem('clay-settings')) || {};
   } catch (e) {
-    return '';
+    return {};
   }
 }
 
-function sendEvents(events) {
-  Pebble.sendAppMessage({ PREV_EVENT: events.prev, NEXT_EVENT: events.next }, null, function () {
-    console.log('No se pudieron enviar los eventos al reloj');
+// Cola de mensajes: el reloj no acepta un envío mientras hay otro en curso.
+var outbox = [];
+var sending = false;
+
+function send(message) {
+  outbox.push(message);
+  sendNext();
+}
+
+function sendNext() {
+  if (sending || outbox.length === 0) {
+    return;
+  }
+  sending = true;
+  var done = function () {
+    sending = false;
+    sendNext();
+  };
+  Pebble.sendAppMessage(outbox.shift(), done, function () {
+    console.log('No se pudo enviar un mensaje al reloj');
+    done();
   });
 }
 
+// ── Calendario ───────────────────────────────────────────────────────────────────
+
 function updateEvents() {
-  var url = icsUrl();
+  var url = (settings().ICS_URL || '').trim().replace(/^webcal:\/\//i, 'https://');
   if (!url) {
-    sendEvents({ prev: 0, next: 0 });
+    send({ PREV_EVENT: 0, NEXT_EVENT: 0 });
     return;
   }
   var xhr = new XMLHttpRequest();
@@ -35,7 +55,8 @@ function updateEvents() {
       return;
     }
     try {
-      sendEvents(calendar.findPrevNext(xhr.responseText, new Date()));
+      var events = calendar.findPrevNext(xhr.responseText, new Date());
+      send({ PREV_EVENT: events.prev, NEXT_EVENT: events.next });
     } catch (e) {
       console.log('Calendario inválido: ' + e.message);
     }
@@ -48,9 +69,35 @@ function updateEvents() {
   xhr.send();
 }
 
-Pebble.addEventListener('ready', updateEvents);
+// ── Glucosa ──────────────────────────────────────────────────────────────────────
+
+function updateGlucose() {
+  var s = settings();
+  var credentials = { email: (s.LLU_EMAIL || '').trim(), password: s.LLU_PASSWORD || '' };
+  if (!credentials.email || !credentials.password) {
+    return;
+  }
+  glucose.fetchLatest(credentials, function (err, reading) {
+    if (err) {
+      // Sin envío: el reloj muestra "G ---" cuando la última lectura queda vieja.
+      console.log('Glucosa: ' + err);
+      return;
+    }
+    send({ GLUCOSE: reading.value, GLUCOSE_TREND: reading.trend, GLUCOSE_TIME: reading.time });
+  });
+}
+
+// ── Eventos de PebbleKit JS ──────────────────────────────────────────────────────
+
+Pebble.addEventListener('ready', function () {
+  updateGlucose();
+  updateEvents();
+});
 
 Pebble.addEventListener('appmessage', function (e) {
+  if (e.payload.REQUEST_GLUCOSE !== undefined) {
+    updateGlucose();
+  }
   if (e.payload.REQUEST_EVENTS !== undefined) {
     updateEvents();
   }
@@ -62,7 +109,9 @@ Pebble.addEventListener('showConfiguration', function () {
 
 Pebble.addEventListener('webviewclosed', function (e) {
   if (e && e.response) {
-    clay.getSettings(e.response);  // guarda ICS_URL en localStorage
+    clay.getSettings(e.response);  // guarda la configuración en localStorage
+    glucose.forgetSession();       // por si cambió la cuenta
+    updateGlucose();
     updateEvents();
   }
 });

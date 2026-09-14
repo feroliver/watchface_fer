@@ -62,7 +62,8 @@ wscript                    Reglas de build (waf) — normalmente no se toca
 src/c/watchface_fer.c      Watchface (C): dibujo y datos del reloj
 src/pkjs/index.js          Lado teléfono (JS): baja el calendario iCal y manda eventos al reloj
 src/pkjs/calendar.js       Parser iCal (ical.js): evento anterior/próximo respecto de "ahora"
-src/pkjs/config.js         Página de configuración (Clay): enlace iCal
+src/pkjs/glucose.js        Cliente LibreLinkUp (login, token, última lectura, SHA-256 propio)
+src/pkjs/config.js         Página de configuración (Clay): enlace iCal + cuenta LibreLinkUp
 resources/fonts/           Russo One (RussoOne-Regular.ttf) + su licencia OFL.txt
 ```
 
@@ -86,7 +87,9 @@ Layout (200×228), todo dibujado en un único `Layer` (`canvas_update_proc`), un
   - Línea 1: `DD/MES` con día de 2 dígitos y mes en 3 letras mayúsculas → `24/ENE`, `02/JUN`.
   - Línea 2: día de la semana en 3 letras → `DOM LUN MAR MIÉ JUE VIE SÁB` (con tilde).
   - Se arma con tablas propias `MONTHS`/`WEEKDAYS`, no con `strftime` (que da inglés).
-- **Arriba derecha**: recuadro con corazón + pulso (Pebble Health, `--` si no hay dato).
+- **Arriba derecha — glucosa** (pedido de Fer, reemplazó al pulso): recuadro `G 120 →`
+  en mg/dL con flecha de tendencia (↓ ↘ → ↗ ↑). `G ---` si la lectura tiene más de 10 min
+  (`GLUCOSE_STALE_S`) o no hay datos. Ver sección "Glucosa".
 - **Centro**: hora grande (Russo One 68), sin cero inicial, respeta 12/24 h.
 - **Abajo izquierda**: pila dibujada (verde > 40 %, amarilla ≤ 40 %, roja ≤ 20 %) + porcentaje.
 - **Abajo derecha — eventos del calendario** (pedido de Fer, reemplazó a amanecer/atardecer):
@@ -96,9 +99,39 @@ Layout (200×228), todo dibujado en un único `Layer` (`canvas_update_proc`), un
   - `--:--` si no hay evento en ±7 días o no hay calendario configurado.
 
 Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
-`FONT_RUSSO_68` (hora, solo `[0-9:]`), `FONT_RUSSO_26` (pulso, eventos), `FONT_RUSSO_20`
-(fecha, batería). Si se agregan caracteres nuevos al texto (p. ej. otras letras con tilde),
+`FONT_RUSSO_68` (hora, solo `[0-9:]`), `FONT_RUSSO_26` (glucosa, eventos), `FONT_RUSSO_20`
+(fecha, "G", batería). Si se agregan caracteres nuevos al texto (p. ej. otras letras con tilde),
 **ampliar el `characterRegex`** o no se dibujan.
+
+### Glucosa (FreeStyle Libre 2 Plus vía LibreLinkUp)
+- Fer usa un sensor **FreeStyle Libre 2 Plus** con la app oficial en **Android**. Se eligió
+  **LibreLinkUp** (nube de Abbott para "seguidores") para no tocar su app oficial.
+  Alternativa descartada por ahora: Juggluco (app local con web server en
+  `127.0.0.1:17580/sgv.json`), que reemplaza a la app oficial como lectora del sensor.
+- ⚠️ **API no oficial** (misma que usan nightscout-librelink-up y pylibrelinkup). Puede romperse
+  si Abbott la cambia: lo primero a probar es subir `LLU_VERSION` en `glucose.js`.
+- ⚠️ Valor **orientativo**: no reemplaza la app/lector oficial para decisiones de tratamiento.
+- Setup de Fer (una vez): cuenta LibreLinkUp con **otro email** → en la app Libre: Apps
+  conectadas → LibreLinkUp → agregar esa cuenta → aceptar la invitación en LibreLinkUp.
+  Email/contraseña de la cuenta **seguidora** se cargan en la configuración (Clay) y quedan
+  solo en `localStorage` del teléfono. **Nunca commitear credenciales.**
+- Flujo (`glucose.js`):
+  - `POST https://api.libreview.io/llu/auth/login` con headers `product: llu.android`,
+    `version: 4.16.0`. Si responde `redirect` + `region`, repetir en `https://api-<region>.libreview.io`.
+    Si responde `step` (`tou`, `pp`, `verifyEmail`), hay que aceptar eso en la app LibreLinkUp.
+  - Token (`authTicket`) + `account-id` = SHA-256 hex del `user.id` se guardan en
+    `localStorage['llu-auth']` y se reutilizan hasta que vencen o la API los rechaza (re-login 1 vez).
+  - `GET /llu/connections` → `data[0].glucoseMeasurement`: `ValueInMgPerDl`, `TrendArrow`
+    (1 bajando rápido, 2 bajando, 3 estable, 4 subiendo, 5 subiendo rápido) y
+    `FactoryTimestamp` (**UTC**, formato `M/D/YYYY h:mm:ss AM/PM`; se parsea a mano).
+- Mensajes: teléfono → reloj `GLUCOSE`, `GLUCOSE_TREND`, `GLUCOSE_TIME` (Unix);
+  reloj → teléfono `REQUEST_GLUCOSE` cada 2 min (`GLUCOSE_REFRESH_MIN`). El reloj pide
+  glucosa y eventos en **un solo mensaje** y el teléfono envía con una **cola** (no se
+  puede mandar un AppMessage mientras otro está en curso).
+- Si falla (sin red, credenciales, términos) no se envía nada y el error va a `console.log`
+  (`pebble logs`); en el reloj la lectura envejece y pasa a `G ---`.
+- Pendiente de verificar en el teléfono real: que la app Pebble de Android deje hacer las
+  requests a libreview.io (y que Cloudflare no las bloquee).
 
 ### Eventos del calendario ("Timeline")
 - **El SDK no permite leer los pins del Timeline** desde una app (solo crearlos por la web API).
@@ -123,11 +156,15 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
 
 ## Estado actual
 
-- v2: fecha en castellano + eventos del calendario (reemplazaron amanecer/atardecer).
-  Tema único blanco sobre negro.
-- Probado en el emulador emery: fecha, tildes, pulso (`emu-heart-rate`), batería y eventos
+- v3: fecha en castellano + glucosa LibreLinkUp (reemplazó al pulso) + eventos del
+  calendario (reemplazaron amanecer/atardecer). Tema único blanco sobre negro.
+  Capabilities: solo `configurable` (ya no `health` ni `location`).
+- Probado en el emulador emery: fecha, tildes, batería y eventos
   end-to-end (calendario de prueba servido en localhost, paso de "próximo" a "anterior").
-- Falta probar en el reloj real con el Google Calendar de Fer.
+- Glucosa probada con tests en node (redirect de región, reuso y renovación de token,
+  términos pendientes, contraseña mala, SHA-256 contra `crypto`) y en el emulador contra un
+  servidor LibreLinkUp simulado (lectura, tendencias, refresco cada 2 min, `G ---`).
+- Falta probar en el reloj real con el Google Calendar y la cuenta LibreLinkUp de Fer.
 - Ideas pendientes / a decidir con Fer: temas de color, aviso de desconexión Bluetooth,
   pasos, varios calendarios.
 
@@ -142,13 +179,18 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
   (`~/.local/share/pebble-sdk/4.33.1/emery/localstorage/<uuid>`, formato `dbm.dumb` de Python)
   con `{"ICS_URL": "http://127.0.0.1:8765/cal.ics"}` y servir un `.ics` de prueba con
   `python3 -m http.server 8765`. Usar eventos relativos a la hora actual.
+- Probar la glucosa sin la API real: servidor simulado en Python en `127.0.0.1:8766` que
+  imite `/llu/auth/login` y `/llu/connections`, y un build **temporal** con
+  `LLU_HOST = 'http://127.0.0.1:8766'` en `glucose.js` (restaurarlo antes de commitear).
+  Credenciales de prueba en `clay-settings` (`LLU_EMAIL`, `LLU_PASSWORD`) igual que el iCal.
 - Tras cambiar `messageKeys` en `package.json` hacer `pebble clean` antes de `pebble build`
   (si no, aparecen errores `MESSAGE_KEY_* undeclared`).
 
 ## Git
 
 - Repo **público**: https://github.com/feroliver/watchface_fer (remoto `origin` por SSH, rama `main`).
-- Al ser público, no commitear datos privados (enlace iCal, tokens, API keys, ubicación, etc.).
+- Al ser público, no commitear datos privados (enlace iCal, credenciales LibreLinkUp, tokens,
+  datos de salud, ubicación, etc.).
 - `build/`, `*.pbw` y `.lock-waf*` están en `.gitignore`, porque se generan al compilar.
 - Mensajes de commit en español.
 

@@ -25,7 +25,13 @@
       "PREV_EVENT",
       "NEXT_EVENT",
       "REQUEST_EVENTS",
-      "ICS_URL"
+      "GLUCOSE",
+      "GLUCOSE_TREND",
+      "GLUCOSE_TIME",
+      "REQUEST_GLUCOSE",
+      "ICS_URL",
+      "LLU_EMAIL",
+      "LLU_PASSWORD"
     ],
     "resources": {
       "media": [
@@ -50,7 +56,6 @@
       ]
     },
     "capabilities": [
-      "health",
       "configurable"
     ]
   }

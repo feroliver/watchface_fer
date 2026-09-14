@@ -15,3 +15,7 @@ Detalles del proyecto, entorno y convenciones: ver [AGENT.md](AGENT.md).
   de rukari / @hidea. El código de este repo es propio.
 - Fuente [Russo One](https://fonts.google.com/specimen/Russo+One) de Jovanny Lemonad,
   bajo SIL Open Font License 1.1 (`resources/fonts/OFL.txt`).
+- Integración con LibreLinkUp basada en lo documentado por
+  [nightscout-librelink-up](https://github.com/timoschlueter/nightscout-librelink-up) y
+  [pylibrelinkup](https://github.com/robberwick/pylibrelinkup). API no oficial de Abbott:
+  el valor de glucosa en el reloj es orientativo.

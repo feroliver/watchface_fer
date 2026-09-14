@@ -1,63 +1,68 @@
-// Lado teléfono: obtiene la ubicación, calcula amanecer/atardecer de hoy y se
-// los manda al reloj en minutos desde la medianoche local (-1 = no hay).
+// Lado teléfono: descarga el calendario iCal configurado y manda al reloj la
+// hora de inicio del evento anterior y del próximo (segundos Unix, 0 = no hay).
 
-var RAD = Math.PI / 180;
+var Clay = require('pebble-clay');
+var clayConfig = require('./config');
+var calendar = require('./calendar');
 
-function sin(deg) { return Math.sin(deg * RAD); }
-function cos(deg) { return Math.cos(deg * RAD); }
+var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
 
-// "Sunrise equation" (https://en.wikipedia.org/wiki/Sunrise_equation).
-// lat/lon en grados decimales (lon positiva al este). Devuelve {sunrise, sunset}
-// en minutos locales, o null si ese día el sol no sale o no se pone.
-function sunTimes(lat, lon, date) {
-  var noonUtc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12);
-  var julianDay = noonUtc / 86400000 + 2440587.5;
-  var n = Math.round(julianDay - 2451545.0 + 0.0008);
-
-  var meanSolarNoon = n - lon / 360;
-  var anomaly = (357.5291 + 0.98560028 * meanSolarNoon) % 360;
-  var center = 1.9148 * sin(anomaly) + 0.02 * sin(2 * anomaly) + 0.0003 * sin(3 * anomaly);
-  var eclipticLon = (anomaly + center + 180 + 102.9372) % 360;
-  var transit = 2451545.0 + meanSolarNoon + 0.0053 * sin(anomaly) - 0.0069 * sin(2 * eclipticLon);
-
-  var sinDecl = sin(eclipticLon) * sin(23.4397);
-  var cosDecl = Math.sqrt(1 - sinDecl * sinDecl);
-  var cosHourAngle = (sin(-0.833) - sin(lat) * sinDecl) / (cos(lat) * cosDecl);
-  if (cosHourAngle < -1 || cosHourAngle > 1) {
-    return null;
+function icsUrl() {
+  try {
+    var settings = JSON.parse(localStorage.getItem('clay-settings')) || {};
+    return (settings.ICS_URL || '').trim().replace(/^webcal:\/\//i, 'https://');
+  } catch (e) {
+    return '';
   }
-  var hourAngle = Math.acos(cosHourAngle) / RAD;
-
-  return {
-    sunrise: julianToLocalMinutes(transit - hourAngle / 360),
-    sunset: julianToLocalMinutes(transit + hourAngle / 360)
-  };
 }
 
-function julianToLocalMinutes(julian) {
-  var d = new Date((julian - 2440587.5) * 86400000);
-  return d.getHours() * 60 + d.getMinutes();
-}
-
-function sendSunTimes(position) {
-  var times = sunTimes(position.coords.latitude, position.coords.longitude, new Date());
-  Pebble.sendAppMessage({
-    SUNRISE: times ? times.sunrise : -1,
-    SUNSET: times ? times.sunset : -1
-  }, null, function () {
-    console.log('No se pudo enviar amanecer/atardecer al reloj');
+function sendEvents(events) {
+  Pebble.sendAppMessage({ PREV_EVENT: events.prev, NEXT_EVENT: events.next }, null, function () {
+    console.log('No se pudieron enviar los eventos al reloj');
   });
 }
 
-function updateSunTimes() {
-  navigator.geolocation.getCurrentPosition(sendSunTimes, function (err) {
-    console.log('Sin ubicación: ' + err.message);
-  }, { timeout: 15000, maximumAge: 6 * 3600 * 1000 });
+function updateEvents() {
+  var url = icsUrl();
+  if (!url) {
+    sendEvents({ prev: 0, next: 0 });
+    return;
+  }
+  var xhr = new XMLHttpRequest();
+  xhr.onload = function () {
+    if (xhr.status !== 200) {
+      console.log('Calendario: HTTP ' + xhr.status);
+      return;
+    }
+    try {
+      sendEvents(calendar.findPrevNext(xhr.responseText, new Date()));
+    } catch (e) {
+      console.log('Calendario inválido: ' + e.message);
+    }
+  };
+  xhr.onerror = function () {
+    console.log('Calendario: error de red');
+  };
+  // No loguear la URL: es secreta.
+  xhr.open('GET', url);
+  xhr.send();
 }
 
-Pebble.addEventListener('ready', updateSunTimes);
+Pebble.addEventListener('ready', updateEvents);
+
 Pebble.addEventListener('appmessage', function (e) {
-  if (e.payload.REQUEST_SUN !== undefined) {
-    updateSunTimes();
+  if (e.payload.REQUEST_EVENTS !== undefined) {
+    updateEvents();
+  }
+});
+
+Pebble.addEventListener('showConfiguration', function () {
+  Pebble.openURL(clay.generateUrl());
+});
+
+Pebble.addEventListener('webviewclosed', function (e) {
+  if (e && e.response) {
+    clay.getSettings(e.response);  // guarda ICS_URL en localStorage
+    updateEvents();
   }
 });

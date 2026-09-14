@@ -60,7 +60,9 @@ del emulador emery para revisar el layout.
 package.json               Metadatos: UUID, nombre, plataformas, capabilities, fuentes, messageKeys
 wscript                    Reglas de build (waf) — normalmente no se toca
 src/c/watchface_fer.c      Watchface (C): dibujo y datos del reloj
-src/pkjs/index.js          Lado teléfono (JS): ubicación + cálculo de amanecer/atardecer
+src/pkjs/index.js          Lado teléfono (JS): baja el calendario iCal y manda eventos al reloj
+src/pkjs/calendar.js       Parser iCal (ical.js): evento anterior/próximo respecto de "ahora"
+src/pkjs/config.js         Página de configuración (Clay): enlace iCal
 resources/fonts/           Russo One (RussoOne-Regular.ttf) + su licencia OFL.txt
 ```
 
@@ -87,26 +89,47 @@ Layout (200×228), todo dibujado en un único `Layer` (`canvas_update_proc`), un
 - **Arriba derecha**: recuadro con corazón + pulso (Pebble Health, `--` si no hay dato).
 - **Centro**: hora grande (Russo One 68), sin cero inicial, respeta 12/24 h.
 - **Abajo izquierda**: pila dibujada (verde > 40 %, amarilla ≤ 40 %, roja ≤ 20 %) + porcentaje.
-- **Abajo derecha**: ▲ amanecer / ▼ atardecer.
+- **Abajo derecha — eventos del calendario** (pedido de Fer, reemplazó a amanecer/atardecer):
+  - ▲ hora de inicio del **evento anterior**, ▼ hora del **próximo evento**
+    (arriba = pasado, abajo = futuro, igual que los botones del Timeline).
+  - Si el evento es de hoy muestra la hora (`9:30`); si es de otro día, el día de la semana (`MIÉ`).
+  - `--:--` si no hay evento en ±7 días o no hay calendario configurado.
 
 Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
-`FONT_RUSSO_68` (hora, solo `[0-9:]`), `FONT_RUSSO_26` (pulso, sol), `FONT_RUSSO_20`
+`FONT_RUSSO_68` (hora, solo `[0-9:]`), `FONT_RUSSO_26` (pulso, eventos), `FONT_RUSSO_20`
 (fecha, batería). Si se agregan caracteres nuevos al texto (p. ej. otras letras con tilde),
 **ampliar el `characterRegex`** o no se dibujan.
 
-### Amanecer / atardecer
-- `src/pkjs/index.js` pide la ubicación al teléfono (`capabilities: location`) y calcula
-  con la "sunrise equation" (días julianos). Verificado contra valores publicados
-  (Buenos Aires, Ushuaia) con error ≤ 1–2 min; devuelve -1 en día/noche polar.
-- Envía `SUNRISE`/`SUNSET` (minutos desde medianoche local) al abrir la watchface;
-  el reloj pide recálculo con `REQUEST_SUN` al cambiar el día. Se guardan con `persist`.
+### Eventos del calendario ("Timeline")
+- **El SDK no permite leer los pins del Timeline** desde una app (solo crearlos por la web API).
+  Por eso se lee directamente el calendario que alimenta al Timeline: Google Calendar vía
+  su **"dirección secreta en formato iCal"**.
+- Configuración: capability `configurable` + **Clay** (`pebble-clay`). Fer pega el enlace en
+  la página de ajustes de la app de Pebble. Clay lo guarda en `localStorage['clay-settings']`
+  **solo en el teléfono**; nunca se envía al reloj ni se loguea.
+- ⚠️ **El enlace iCal es secreto** (da acceso de lectura al calendario): jamás commitearlo,
+  ni en tests ni en ejemplos.
+- `calendar.js` usa `ical.js` 1.5.0 (CommonJS; la v2 es ESM y no sirve en pkjs): registra
+  `VTIMEZONE`, expande `RRULE`/`EXDATE`, aplica instancias modificadas (`RECURRENCE-ID`),
+  ignora eventos de día completo y `STATUS:CANCELLED`. Ventana: ±7 días.
+- Mensajes: teléfono → reloj `PREV_EVENT`, `NEXT_EVENT` (inicio en segundos Unix, 0 = no hay);
+  reloj → teléfono `REQUEST_EVENTS`. `ICS_URL` existe como messageKey solo para Clay.
+- El teléfono actualiza al abrir la watchface, al guardar la configuración y cuando el reloj
+  lo pide: cada 30 min (`EVENTS_REFRESH_MIN`) y cuando empieza el próximo evento. En ese
+  momento el reloj ya pasa el "próximo" a "anterior" por su cuenta (funciona sin teléfono).
+  Los valores se guardan con `persist`.
+- Limitación: con un calendario muy largo el `.ics` de Google puede pesar varios MB.
+  Si se vuelve lento, evaluar filtrar o cachear.
 
 ## Estado actual
 
-- v1 funcional con el diseño de arriba, tema único blanco sobre negro. Probado en el
-  emulador emery (fecha, tildes, pulso con `emu-heart-rate`, niveles de batería).
-- Ideas pendientes / a decidir con Fer: temas de color, configuración desde el teléfono,
-  aviso de desconexión Bluetooth, pasos.
+- v2: fecha en castellano + eventos del calendario (reemplazaron amanecer/atardecer).
+  Tema único blanco sobre negro.
+- Probado en el emulador emery: fecha, tildes, pulso (`emu-heart-rate`), batería y eventos
+  end-to-end (calendario de prueba servido en localhost, paso de "próximo" a "anterior").
+- Falta probar en el reloj real con el Google Calendar de Fer.
+- Ideas pendientes / a decidir con Fer: temas de color, aviso de desconexión Bluetooth,
+  pasos, varios calendarios.
 
 ## Tips del emulador
 
@@ -114,13 +137,18 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
   hacer un build temporal forzando `s_now` (y volver al código original antes de commitear).
 - La watchface redibuja por tick de minuto: tras cambiar algo del emulador, reinstalar
   (`pebble install --emulator emery`) para ver el efecto inmediato.
+- Probar la parte de calendario sin la página de ajustes: con el emulador cerrado
+  (`pebble kill`), escribir `clay-settings` en el localStorage de pypkjs
+  (`~/.local/share/pebble-sdk/4.33.1/emery/localstorage/<uuid>`, formato `dbm.dumb` de Python)
+  con `{"ICS_URL": "http://127.0.0.1:8765/cal.ics"}` y servir un `.ics` de prueba con
+  `python3 -m http.server 8765`. Usar eventos relativos a la hora actual.
 - Tras cambiar `messageKeys` en `package.json` hacer `pebble clean` antes de `pebble build`
   (si no, aparecen errores `MESSAGE_KEY_* undeclared`).
 
 ## Git
 
 - Repo **público**: https://github.com/feroliver/watchface_fer (remoto `origin` por SSH, rama `main`).
-- Al ser público, no commitear datos privados (tokens, API keys de clima, ubicación, etc.).
+- Al ser público, no commitear datos privados (enlace iCal, tokens, API keys, ubicación, etc.).
 - `build/`, `*.pbw` y `.lock-waf*` están en `.gitignore`, porque se generan al compilar.
 - Mensajes de commit en español.
 

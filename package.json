@@ -6,7 +6,10 @@
     "pebble-app"
   ],
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "ical.js": "1.5.0",
+    "pebble-clay": "^1.0.4"
+  },
   "pebble": {
     "displayName": "Watchface Fer",
     "uuid": "611e739a-8f35-471b-8aed-4b493e3ecb9e",
@@ -19,9 +22,10 @@
       "watchface": true
     },
     "messageKeys": [
-      "SUNRISE",
-      "SUNSET",
-      "REQUEST_SUN"
+      "PREV_EVENT",
+      "NEXT_EVENT",
+      "REQUEST_EVENTS",
+      "ICS_URL"
     ],
     "resources": {
       "media": [
@@ -47,7 +51,7 @@
     },
     "capabilities": [
       "health",
-      "location"
+      "configurable"
     ]
   }
 }

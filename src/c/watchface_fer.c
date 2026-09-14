@@ -8,15 +8,16 @@
 //  │    LUN       │  ♥   72    │  │
 //  │              └────────────┘  │
 //  │           17:29              │  zona central: hora
-//  │  ┌──────┐     ▲  6:54        │  zona inferior: batería + sol
-//  │  └──────┘     ▼ 18:43        │
+//  │  ┌──────┐     ▲  9:30        │  zona inferior: batería + eventos
+//  │  └──────┘     ▼ 11:00        │  (▲ anterior, ▼ próximo, como el Timeline)
 //  │    87%                       │
 //  └──────────────────────────────┘
 
 #define MARGIN 8
 #define TOP_H 58
 #define BOTTOM_H 64
-#define PERSIST_KEY_SUN 1
+#define PERSIST_KEY_EVENTS 2
+#define EVENTS_REFRESH_MIN 30
 #define NO_DATA -1
 
 static const char *const MONTHS[] = {
@@ -27,9 +28,9 @@ static const char *const WEEKDAYS[] = {
 };
 
 typedef struct {
-  int16_t sunrise;  // minutos desde medianoche, NO_DATA si no hay
-  int16_t sunset;
-} SunTimes;
+  int32_t prev;  // inicio del evento anterior del calendario (Unix), 0 si no hay
+  int32_t next;  // inicio del próximo evento
+} Events;
 
 static Window *s_window;
 static Layer *s_canvas;
@@ -40,7 +41,7 @@ static GFont s_font_small;
 static struct tm s_now;
 static BatteryChargeState s_battery;
 static int s_heart_rate = NO_DATA;
-static SunTimes s_sun = { NO_DATA, NO_DATA };
+static Events s_events;
 
 // ── Dibujo ────────────────────────────────────────────────────────────────────
 
@@ -124,34 +125,45 @@ static void draw_battery(GContext *ctx, GRect area) {
             GRect(area.origin.x, area.origin.y + 32, area.size.w, 28), GTextAlignmentCenter);
 }
 
-static void format_minutes(int16_t minutes, char *buf, size_t size) {
-  if (minutes == NO_DATA) {
+// Mismo día: hora ("9:30"). Otro día: día de la semana ("MIÉ").
+static void format_event(time_t start, char *buf, size_t size) {
+  if (start == 0) {
     strcpy(buf, "--:--");
-  } else {
-    snprintf(buf, size, "%d:%02d", minutes / 60, minutes % 60);
+    return;
+  }
+  struct tm event = *localtime(&start);
+  if (event.tm_yday != s_now.tm_yday || event.tm_year != s_now.tm_year) {
+    strncpy(buf, WEEKDAYS[event.tm_wday], size);
+    buf[size - 1] = '\0';
+    return;
+  }
+  strftime(buf, size, clock_is_24h_style() ? "%H:%M" : "%I:%M", &event);
+  if (buf[0] == '0') {
+    memmove(buf, buf + 1, strlen(buf));
   }
 }
 
-static void draw_sun_row(GContext *ctx, GRect row, int16_t minutes, bool rising) {
+static void draw_event_row(GContext *ctx, GRect row, time_t start, bool past) {
   int cx = row.origin.x + 5;
   int cy = row.origin.y + row.size.h / 2 + 2;
-  if (rising) {
+  if (past) {
     fill_triangle(ctx, GPoint(cx - 5, cy + 3), GPoint(cx + 5, cy + 3), GPoint(cx, cy - 3));
   } else {
     fill_triangle(ctx, GPoint(cx - 5, cy - 3), GPoint(cx + 5, cy - 3), GPoint(cx, cy + 3));
   }
   char text[12];
-  format_minutes(minutes, text, sizeof(text));
+  format_event(start, text, sizeof(text));
   draw_text(ctx, text, s_font_medium,
             GRect(row.origin.x + 12, row.origin.y - 4, row.size.w - 12, row.size.h + 4),
             GTextAlignmentRight);
 }
 
-static void draw_sun(GContext *ctx, GRect area) {
+static void draw_events(GContext *ctx, GRect area) {
   int row_h = area.size.h / 2;
-  draw_sun_row(ctx, GRect(area.origin.x, area.origin.y, area.size.w, row_h), s_sun.sunrise, true);
-  draw_sun_row(ctx, GRect(area.origin.x, area.origin.y + row_h, area.size.w, row_h), s_sun.sunset,
-               false);
+  draw_event_row(ctx, GRect(area.origin.x, area.origin.y, area.size.w, row_h), s_events.prev,
+                 true);
+  draw_event_row(ctx, GRect(area.origin.x, area.origin.y + row_h, area.size.w, row_h),
+                 s_events.next, false);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -170,23 +182,31 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   draw_heart_rate(ctx, GRect(MARGIN + 88, MARGIN + 4, inner_w - 92, 48));
   draw_time(ctx, GRect(MARGIN, MARGIN + TOP_H, inner_w, bottom_y - MARGIN - TOP_H));
   draw_battery(ctx, GRect(MARGIN + 4, bottom_y, 76, BOTTOM_H));
-  draw_sun(ctx, GRect(MARGIN + 88, bottom_y + 2, inner_w - 96, BOTTOM_H - 4));
+  draw_events(ctx, GRect(MARGIN + 88, bottom_y + 2, inner_w - 96, BOTTOM_H - 4));
 }
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
 
-static void request_sun_times(void) {
+static void request_events(void) {
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
-    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_SUN, 1);
+    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_EVENTS, 1);
     app_message_outbox_send();
   }
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   s_now = *tick_time;
-  if (units_changed & DAY_UNIT) {
-    request_sun_times();
+  // Cuando empieza el próximo evento pasa a ser el anterior (aunque no haya
+  // teléfono); se pide el nuevo próximo y, periódicamente, por si cambió el calendario.
+  bool next_started = s_events.next != 0 && time(NULL) >= s_events.next;
+  if (next_started) {
+    s_events.prev = s_events.next;
+    s_events.next = 0;
+    persist_write_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
+  }
+  if (next_started || tick_time->tm_min % EVENTS_REFRESH_MIN == 0) {
+    request_events();
   }
   layer_mark_dirty(s_canvas);
 }
@@ -212,12 +232,12 @@ static void health_handler(HealthEventType event, void *context) {
 }
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
-  Tuple *sunrise = dict_find(iter, MESSAGE_KEY_SUNRISE);
-  Tuple *sunset = dict_find(iter, MESSAGE_KEY_SUNSET);
-  if (sunrise && sunset) {
-    s_sun.sunrise = (int16_t)sunrise->value->int32;
-    s_sun.sunset = (int16_t)sunset->value->int32;
-    persist_write_data(PERSIST_KEY_SUN, &s_sun, sizeof(s_sun));
+  Tuple *prev = dict_find(iter, MESSAGE_KEY_PREV_EVENT);
+  Tuple *next = dict_find(iter, MESSAGE_KEY_NEXT_EVENT);
+  if (prev && next) {
+    s_events.prev = prev->value->int32;
+    s_events.next = next->value->int32;
+    persist_write_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
     layer_mark_dirty(s_canvas);
   }
 }
@@ -244,8 +264,8 @@ static void init(void) {
   s_now = *localtime(&now);
   s_battery = battery_state_service_peek();
   update_heart_rate();
-  if (persist_exists(PERSIST_KEY_SUN)) {
-    persist_read_data(PERSIST_KEY_SUN, &s_sun, sizeof(s_sun));
+  if (persist_exists(PERSIST_KEY_EVENTS)) {
+    persist_read_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
   }
 
   s_window = window_create();

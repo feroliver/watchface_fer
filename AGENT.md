@@ -76,6 +76,12 @@ Datos fijos de `package.json`:
 - Probado en el emulador emery (compila y se ve bien).
 - **Pendiente: definir el diseño propio de Fer** (el esqueleto es un placeholder).
 
+## Git
+
+- Repo local en la rama `main`, sin remoto por ahora.
+- `build/`, `*.pbw` y `.lock-waf*` están en `.gitignore`, porque se generan al compilar.
+- Mensajes de commit en español.
+
 ## Convenciones y notas técnicas
 
 - Idioma del código: C99 al estilo de los ejemplos del SDK (`s_` para estáticos de módulo,

@@ -13,6 +13,12 @@
 //  │    87%                       │
 //  └──────────────────────────────┘
 
+// Skin "Blueberry": textos, marcos e íconos en azul sobre negro. Los colores con
+// significado (glucosa según rango, nivel de batería) no dependen del skin.
+#define SKIN_BACKGROUND GColorBlack
+#define SKIN_PRIMARY GColorVividCerulean  // #00AAFF: textos y marcos
+#define SKIN_ACCENT GColorElectricBlue    // #55FFFF: "G" y flechas de eventos
+
 #define MARGIN 8
 #define TOP_H 58
 #define BOTTOM_H 64
@@ -127,8 +133,10 @@ static void draw_date(GContext *ctx, GRect area) {
 static void draw_glucose(GContext *ctx, GRect area) {
   graphics_context_set_stroke_width(ctx, 2);
   graphics_draw_round_rect(ctx, area, 8);
+  graphics_context_set_text_color(ctx, SKIN_ACCENT);
   draw_text(ctx, "G", s_font_small, GRect(area.origin.x + 6, area.origin.y + 10, 16, 28),
             GTextAlignmentLeft);
+  graphics_context_set_text_color(ctx, SKIN_PRIMARY);
 
   bool fresh = glucose_is_fresh();
   char value[12];
@@ -148,8 +156,8 @@ static void draw_glucose(GContext *ctx, GRect area) {
     draw_trend_arrow(ctx, GPoint(area.origin.x + area.size.w - 13,
                                  area.origin.y + area.size.h / 2), (int)s_glucose.trend);
   }
-  graphics_context_set_text_color(ctx, GColorWhite);
-  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_context_set_text_color(ctx, SKIN_PRIMARY);
+  graphics_context_set_fill_color(ctx, SKIN_PRIMARY);
 }
 
 static void draw_time(GContext *ctx, GRect area) {
@@ -178,7 +186,7 @@ static void draw_battery(GContext *ctx, GRect area) {
   graphics_fill_rect(ctx, GRect(body.origin.x + 4, body.origin.y + 4,
                                 max_w * s_battery.charge_percent / 100, body.size.h - 8),
                      0, GCornerNone);
-  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_context_set_fill_color(ctx, SKIN_PRIMARY);
 
   char percent[8];
   snprintf(percent, sizeof(percent), "%d%%", s_battery.charge_percent);
@@ -207,11 +215,13 @@ static void format_event(time_t start, char *buf, size_t size) {
 static void draw_event_row(GContext *ctx, GRect row, time_t start, bool past) {
   int cx = row.origin.x + 5;
   int cy = row.origin.y + row.size.h / 2 + 2;
+  graphics_context_set_fill_color(ctx, SKIN_ACCENT);
   if (past) {
     fill_triangle(ctx, GPoint(cx - 5, cy + 3), GPoint(cx + 5, cy + 3), GPoint(cx, cy - 3));
   } else {
     fill_triangle(ctx, GPoint(cx - 5, cy - 3), GPoint(cx + 5, cy - 3), GPoint(cx, cy + 3));
   }
+  graphics_context_set_fill_color(ctx, SKIN_PRIMARY);
   char text[12];
   format_event(start, text, sizeof(text));
   draw_text(ctx, text, s_font_medium,
@@ -229,9 +239,9 @@ static void draw_events(GContext *ctx, GRect area) {
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
-  graphics_context_set_text_color(ctx, GColorWhite);
-  graphics_context_set_stroke_color(ctx, GColorWhite);
-  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_context_set_text_color(ctx, SKIN_PRIMARY);
+  graphics_context_set_stroke_color(ctx, SKIN_PRIMARY);
+  graphics_context_set_fill_color(ctx, SKIN_PRIMARY);
 
   graphics_context_set_stroke_width(ctx, 4);
   graphics_draw_round_rect(ctx, GRect(2, 2, bounds.size.w - 4, bounds.size.h - 4), 16);
@@ -350,7 +360,7 @@ static void init(void) {
   }
 
   s_window = window_create();
-  window_set_background_color(s_window, GColorBlack);
+  window_set_background_color(s_window, SKIN_BACKGROUND);
   window_set_window_handlers(s_window, (WindowHandlers) {
     .load = window_load,
     .unload = window_unload,

@@ -44,12 +44,27 @@ pebble emu-battery --percent 20 --emulator emery
 pebble emu-bt-connection --connected no --emulator emery
 pebble kill                                   # cerrar el emulador
 
-# En el reloj real (app Pebble en el teléfono con "Dev Connect" activado):
-pebble login
-pebble install --cloudpebble
-# o por IP del teléfono en la misma red:
-pebble install --phone <ip>
+# En el reloj real (método usado y probado con el reloj de Fer):
+pebble login                                  # una vez, con GitHub (cuenta feroliver)
+pebble build && pebble install --cloudpebble  # instala/actualiza vía Dev Connect
+pebble logs --cloudpebble                     # console.log del teléfono + APP_LOG del reloj
+# Alternativas: pebble install --adb (USB, requiere adb) o --phone <ip> (misma Wi-Fi)
 ```
+
+Instalación en el reloj real (Dev Connect):
+1. Teléfono: app Pebble → **Devices → ⋮ → Enable Dev Connect** → login con GitHub.
+2. Computadora: `pebble login` (misma cuenta de GitHub; ya hecho en esta máquina).
+3. `pebble build && pebble install --cloudpebble`. Reinstalar conserva la configuración (mismo UUID).
+
+Configuración inicial en el teléfono (app Pebble → Watchface Fer → Ajustes):
+- **Calendario**: calendar.google.com/calendar/r/settings (web; en el celu, Chrome con
+  "Sitio de escritorio") → tu calendario → **Integrar el calendario** → **Dirección secreta en
+  formato iCal** (contiene `private-`). No existe en la app de Calendar ni para calendarios
+  compartidos/suscriptos; en cuentas Workspace el admin puede deshabilitarla. "Restablecer" la invalida.
+- **Glucosa**: app LibreLinkUp → registrar cuenta **seguidora** con otro email (sirve alias
+  Gmail `usuario+libre@gmail.com`) y aceptar términos/privacidad → en la app Libre:
+  ☰ → Aplicaciones conectadas → LibreLinkUp → Añadir conexión con ese email → aceptar la
+  invitación en LibreLinkUp → cargar email/contraseña de la seguidora en los ajustes.
 
 Verificación mínima después de cada cambio: `pebble build` sin errores y captura
 del emulador emery para revisar el layout.
@@ -142,8 +157,6 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
   - El teléfono los manda (`GLUCOSE_RED_LOW`, `GLUCOSE_TARGET_LOW`, `GLUCOSE_TARGET_HIGH`,
     `GLUCOSE_RED_HIGH`) al abrir la watchface y al guardar la configuración; el reloj los
     guarda con `persist` (colorea aunque no haya teléfono). Defaults también en el C.
-- Pendiente de verificar en el teléfono real: que la app Pebble de Android deje hacer las
-  requests a libreview.io (y que Cloudflare no las bloquee).
 
 ### Eventos del calendario ("Timeline")
 - **El SDK no permite leer los pins del Timeline** desde una app (solo crearlos por la web API).
@@ -177,9 +190,9 @@ Fuentes (recursos en `package.json`, con `characterRegex` para ahorrar memoria):
   términos pendientes, contraseña mala, SHA-256 contra `crypto`) y en el emulador contra un
   servidor LibreLinkUp simulado (lectura, tendencias, refresco cada 2 min, `G ---`,
   colores en los bordes de cada rango con valores por defecto y personalizados).
-- La página de configuración (Clay) no se probó visualmente (en el emulador depende de un
-  proxy externo); revisarla en la app de Pebble del teléfono.
-- Falta probar en el reloj real con el Google Calendar y la cuenta LibreLinkUp de Fer.
+- ✅ **Funcionando en el reloj real de Fer** (2026-09-14): instalado con Dev Connect, página de
+  configuración (Clay), eventos de Google Calendar y glucosa desde LibreLinkUp con colores.
+  La app Pebble de Android permite las requests a libreview.io y a Google Calendar.
 - Ideas pendientes / a decidir con Fer: temas de color, aviso de desconexión Bluetooth,
   pasos, varios calendarios.
 

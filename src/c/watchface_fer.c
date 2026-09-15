@@ -194,7 +194,8 @@ static void draw_battery(GContext *ctx, GRect area) {
             GRect(area.origin.x, area.origin.y + 32, area.size.w, 28), GTextAlignmentCenter);
 }
 
-// Mismo día: hora ("9:30"). Otro día: día de la semana ("MIÉ").
+// Mismo día: hora en 24 h ("9:30", "18:00") aunque el reloj esté en 12 h, porque sin
+// AM/PM sería ambigua. Otro día: día de la semana ("MIÉ").
 static void format_event(time_t start, char *buf, size_t size) {
   if (start == 0) {
     strcpy(buf, "--:--");
@@ -206,7 +207,7 @@ static void format_event(time_t start, char *buf, size_t size) {
     buf[size - 1] = '\0';
     return;
   }
-  strftime(buf, size, clock_is_24h_style() ? "%H:%M" : "%I:%M", &event);
+  strftime(buf, size, "%H:%M", &event);
   if (buf[0] == '0') {
     memmove(buf, buf + 1, strlen(buf));
   }

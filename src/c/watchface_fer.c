@@ -370,7 +370,8 @@ static void init(void) {
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   battery_state_service_subscribe(battery_handler);
   app_message_register_inbox_received(inbox_received_handler);
-  app_message_open(64, 32);
+  // Entrante más grande: glucosa + rangos (7 enteros) llegan en un solo mensaje.
+  app_message_open(128, 32);
 }
 
 static void deinit(void) {

@@ -83,19 +83,23 @@ function updateGlucose() {
       console.log('Glucosa: ' + err);
       return;
     }
-    send({ GLUCOSE: reading.value, GLUCOSE_TREND: reading.trend, GLUCOSE_TIME: reading.time });
+    send(addRanges({ GLUCOSE: reading.value, GLUCOSE_TREND: reading.trend, GLUCOSE_TIME: reading.time }));
   });
 }
 
-// Los rangos se guardan en el reloj: el color funciona aunque no haya teléfono.
-function sendRanges() {
+// Los rangos se guardan en el reloj (el color funciona aunque no haya teléfono) y se
+// reenvían con cada lectura: si el reloj quedó con umbrales viejos se corrige solo.
+function addRanges(message) {
   var ranges = glucose.parseRanges(settings());
-  send({
-    GLUCOSE_RED_LOW: ranges.redLow,
-    GLUCOSE_TARGET_LOW: ranges.targetLow,
-    GLUCOSE_TARGET_HIGH: ranges.targetHigh,
-    GLUCOSE_RED_HIGH: ranges.redHigh
-  });
+  message.GLUCOSE_RED_LOW = ranges.redLow;
+  message.GLUCOSE_TARGET_LOW = ranges.targetLow;
+  message.GLUCOSE_TARGET_HIGH = ranges.targetHigh;
+  message.GLUCOSE_RED_HIGH = ranges.redHigh;
+  return message;
+}
+
+function sendRanges() {
+  send(addRanges({}));
 }
 
 // ── Eventos de PebbleKit JS ──────────────────────────────────────────────────────

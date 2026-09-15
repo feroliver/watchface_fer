@@ -7,7 +7,6 @@ pebble build
 pebble install --emulator emery
 ```
 
-Detalles del proyecto, entorno y convenciones: ver [AGENT.md](AGENT.md).
 
 ## Créditos
 

@@ -40,6 +40,11 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
 - **Rangos de color de glucosa se reenvían con cada lectura** (`addRanges` en `index.js`), no
   solo al abrir/guardar: corrige un bug real donde el reloj quedó con umbrales viejos. Por eso
   el inbox del reloj es de 128 bytes (glucosa + 4 rangos en un mensaje).
+- **Vibración al cambiar de zona de glucosa** (verde/amarillo/rojo): `notify_zone_change` en el
+  reloj. Doble pulso al entrar en rojo, corto en el resto. Solo con una lectura **nueva**
+  (`GLUCOSE_TIME` distinto del guardado) y habiendo una previa; compara ambas lecturas con los
+  **rangos actuales**, por eso en `inbox_received_handler` los rangos se aplican **antes** que
+  la glucosa. Cambiar los rangos en la config no hace vibrar por sí solo.
 - **Todas las horas en 24 h** (`%H:%M`, sin cero inicial), ignorando la configuración 12/24 h
   del reloj: pedido explícito (en 12 h "6:00" de un evento sin AM/PM era ambiguo).
 - **Cumpleaños**: salen del mismo iCal del calendario principal. Google solo los incluye si en
@@ -64,6 +69,8 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
 
 ## Particularidades del tooling
 
+- `pebble wipe` borra también la carpeta `localstorage` de pypkjs: recrearla (`mkdir -p`) antes
+  de escribir `clay-settings`. La vibración no se percibe en el emulador: verificar con `APP_LOG`.
 - `pebble emu-set-time` no cambia la fecha que ve la watchface: para probar fechas, build
   temporal forzando `s_now`.
 - Dev Connect se desconecta seguido: si queda en `Waiting for phone to connect...`, pedir al

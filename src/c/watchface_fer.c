@@ -107,14 +107,29 @@ static void draw_trend_arrow(GContext *ctx, GPoint center, int trend) {
   gpath_destroy(path);
 }
 
-static GColor glucose_color(int32_t value) {
+typedef enum {
+  GLUCOSE_ZONE_GREEN,   // dentro del objetivo
+  GLUCOSE_ZONE_YELLOW,  // fuera del objetivo, sin pasar los límites rojos
+  GLUCOSE_ZONE_RED,
+} GlucoseZone;
+
+static GlucoseZone glucose_zone(int32_t value) {
   if (value < s_ranges.red_low || value > s_ranges.red_high) {
-    return GColorRed;
+    return GLUCOSE_ZONE_RED;
   }
   if (value < s_ranges.target_low || value > s_ranges.target_high) {
-    return GColorYellow;
+    return GLUCOSE_ZONE_YELLOW;
   }
-  return GColorGreen;
+  return GLUCOSE_ZONE_GREEN;
+}
+
+static GColor glucose_color(int32_t value) {
+  static const GColor colors[] = {
+    [GLUCOSE_ZONE_GREEN] = { GColorGreenARGB8 },
+    [GLUCOSE_ZONE_YELLOW] = { GColorYellowARGB8 },
+    [GLUCOSE_ZONE_RED] = { GColorRedARGB8 },
+  };
+  return colors[glucose_zone(value)];
 }
 
 static bool glucose_is_fresh(void) {
@@ -334,6 +349,19 @@ static void battery_handler(BatteryChargeState state) {
   layer_mark_dirty(s_canvas);
 }
 
+// Vibra cuando la glucosa cambia de color: doble pulso al entrar en rojo, corto en el resto.
+static void notify_zone_change(GlucoseZone old_zone, GlucoseZone new_zone) {
+  if (new_zone == old_zone) {
+    return;
+  }
+  APP_LOG(APP_LOG_LEVEL_INFO, "Glucosa cambió de zona: %d -> %d", old_zone, new_zone);
+  if (new_zone == GLUCOSE_ZONE_RED) {
+    vibes_double_pulse();
+  } else {
+    vibes_short_pulse();
+  }
+}
+
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   Tuple *prev = dict_find(iter, MESSAGE_KEY_PREV_EVENT);
   Tuple *next = dict_find(iter, MESSAGE_KEY_NEXT_EVENT);
@@ -346,17 +374,8 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     layer_mark_dirty(s_canvas);
   }
 
-  Tuple *value = dict_find(iter, MESSAGE_KEY_GLUCOSE);
-  Tuple *trend = dict_find(iter, MESSAGE_KEY_GLUCOSE_TREND);
-  Tuple *read_at = dict_find(iter, MESSAGE_KEY_GLUCOSE_TIME);
-  if (value && trend && read_at) {
-    s_glucose.value = value->value->int32;
-    s_glucose.trend = trend->value->int32;
-    s_glucose.time = read_at->value->int32;
-    persist_write_data(PERSIST_KEY_GLUCOSE, &s_glucose, sizeof(s_glucose));
-    layer_mark_dirty(s_canvas);
-  }
-
+  // Los rangos llegan en el mismo mensaje que la lectura: se aplican antes para comparar
+  // zonas con los umbrales vigentes.
   Tuple *red_low = dict_find(iter, MESSAGE_KEY_GLUCOSE_RED_LOW);
   Tuple *target_low = dict_find(iter, MESSAGE_KEY_GLUCOSE_TARGET_LOW);
   Tuple *target_high = dict_find(iter, MESSAGE_KEY_GLUCOSE_TARGET_HIGH);
@@ -367,6 +386,23 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     s_ranges.target_high = target_high->value->int32;
     s_ranges.red_high = red_high->value->int32;
     persist_write_data(PERSIST_KEY_RANGES, &s_ranges, sizeof(s_ranges));
+    layer_mark_dirty(s_canvas);
+  }
+
+  Tuple *value = dict_find(iter, MESSAGE_KEY_GLUCOSE);
+  Tuple *trend = dict_find(iter, MESSAGE_KEY_GLUCOSE_TREND);
+  Tuple *read_at = dict_find(iter, MESSAGE_KEY_GLUCOSE_TIME);
+  if (value && trend && read_at) {
+    // Solo una lectura nueva (no la misma reenviada) con lectura previa para comparar.
+    bool compare = s_glucose.time != 0 && read_at->value->int32 != s_glucose.time;
+    GlucoseZone old_zone = glucose_zone(s_glucose.value);
+    s_glucose.value = value->value->int32;
+    s_glucose.trend = trend->value->int32;
+    s_glucose.time = read_at->value->int32;
+    persist_write_data(PERSIST_KEY_GLUCOSE, &s_glucose, sizeof(s_glucose));
+    if (compare) {
+      notify_zone_change(old_zone, glucose_zone(s_glucose.value));
+    }
     layer_mark_dirty(s_canvas);
   }
 }

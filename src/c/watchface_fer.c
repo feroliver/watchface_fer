@@ -5,7 +5,8 @@
 //
 //  ┌──────────────────────────────┐
 //  │  14/SEP      ┌────────────┐  │  zona superior: fecha + glucosa
-//  │    LUN       │ G  120  →  │  │  (LibreLinkUp, vía teléfono)
+//  │  * LUN       │ G  120  →  │  │  (LibreLinkUp, vía teléfono); * = torta si hay
+//  │              │            │  │  un cumpleaños hoy en el calendario
 //  │              └────────────┘  │
 //  │           17:29              │  zona central: hora
 //  │  ┌──────┐     ▲  9:30        │  zona inferior: batería + eventos
@@ -39,6 +40,7 @@ static const char *const WEEKDAYS[] = {
 typedef struct {
   int32_t prev;  // inicio del evento anterior del calendario (Unix), 0 si no hay
   int32_t next;  // inicio del próximo evento
+  int32_t birthday;  // AAAAMMDD del día con cumpleaños en el calendario, 0 si no hay
 } Events;
 
 typedef struct {
@@ -119,15 +121,52 @@ static bool glucose_is_fresh(void) {
   return s_glucose.time != 0 && time(NULL) - s_glucose.time <= GLUCOSE_STALE_S;
 }
 
+#define CAKE_SIZE 16
+#define CAKE_GAP 5
+
+// Torta de cumpleaños de 16x16 (origen arriba a la izquierda): vela con llama, glaseado y
+// bizcochuelo rosa sobre un plato.
+static void draw_cake(GContext *ctx, GPoint o) {
+  graphics_context_set_fill_color(ctx, GColorChromeYellow);
+  graphics_fill_circle(ctx, GPoint(o.x + 8, o.y + 2), 2);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, GRect(o.x + 7, o.y + 4, 2, 4), 0, GCornerNone);
+  graphics_context_set_fill_color(ctx, GColorBrilliantRose);
+  graphics_fill_rect(ctx, GRect(o.x + 1, o.y + 8, 14, 7), 2, GCornersTop);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, GRect(o.x + 1, o.y + 8, 14, 2), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(o.x + 3, o.y + 10, 2, 2), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(o.x + 8, o.y + 10, 2, 1), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(o.x + 12, o.y + 10, 2, 2), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(o.x, o.y + 15, CAKE_SIZE, 1), 0, GCornerNone);
+  graphics_context_set_fill_color(ctx, SKIN_PRIMARY);
+}
+
+static int32_t today_ymd(void) {
+  return (s_now.tm_year + 1900) * 10000 + (s_now.tm_mon + 1) * 100 + s_now.tm_mday;
+}
+
 static void draw_date(GContext *ctx, GRect area) {
   char date[12];
   snprintf(date, sizeof(date), "%02d/%s", s_now.tm_mday, MONTHS[s_now.tm_mon]);
   int line_h = area.size.h / 2;
   draw_text(ctx, date, s_font_small,
             GRect(area.origin.x, area.origin.y, area.size.w, line_h), GTextAlignmentCenter);
-  draw_text(ctx, WEEKDAYS[s_now.tm_wday], s_font_small,
-            GRect(area.origin.x, area.origin.y + line_h, area.size.w, line_h),
-            GTextAlignmentCenter);
+
+  const char *weekday = WEEKDAYS[s_now.tm_wday];
+  GRect weekday_box = GRect(area.origin.x, area.origin.y + line_h, area.size.w, line_h);
+  if (s_events.birthday == 0 || s_events.birthday != today_ymd()) {
+    draw_text(ctx, weekday, s_font_small, weekday_box, GTextAlignmentCenter);
+    return;
+  }
+  // Día con cumpleaños: la torta va delante del día y el conjunto queda centrado.
+  GSize text = graphics_text_layout_get_content_size(weekday, s_font_small, weekday_box,
+                                                     GTextOverflowModeFill, GTextAlignmentLeft);
+  int x = area.origin.x + (area.size.w - (CAKE_SIZE + CAKE_GAP + text.w)) / 2;
+  draw_cake(ctx, GPoint(x, weekday_box.origin.y + 6));
+  draw_text(ctx, weekday, s_font_small,
+            GRect(x + CAKE_SIZE + CAKE_GAP, weekday_box.origin.y, text.w + 2, line_h),
+            GTextAlignmentLeft);
 }
 
 static void draw_glucose(GContext *ctx, GRect area) {
@@ -161,8 +200,9 @@ static void draw_glucose(GContext *ctx, GRect area) {
 }
 
 static void draw_time(GContext *ctx, GRect area) {
+  // Siempre 24 h, aunque el reloj esté configurado en 12 h (pedido de Fer).
   char time_str[6];
-  strftime(time_str, sizeof(time_str), clock_is_24h_style() ? "%H:%M" : "%I:%M", &s_now);
+  strftime(time_str, sizeof(time_str), "%H:%M", &s_now);
   const char *text = (time_str[0] == '0') ? time_str + 1 : time_str;
   // El alto de línea de la fuente es mayor que las cifras: se sube el cuadro
   // para centrar ópticamente los dígitos en la zona.
@@ -194,8 +234,8 @@ static void draw_battery(GContext *ctx, GRect area) {
             GRect(area.origin.x, area.origin.y + 32, area.size.w, 28), GTextAlignmentCenter);
 }
 
-// Mismo día: hora en 24 h ("9:30", "18:00") aunque el reloj esté en 12 h, porque sin
-// AM/PM sería ambigua. Otro día: día de la semana ("MIÉ").
+// Mismo día: hora en 24 h ("9:30", "18:00"), igual que la hora principal. Otro día: día de
+// la semana ("MIÉ").
 static void format_event(time_t start, char *buf, size_t size) {
   if (start == 0) {
     strcpy(buf, "--:--");
@@ -300,6 +340,8 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   if (prev && next) {
     s_events.prev = prev->value->int32;
     s_events.next = next->value->int32;
+    Tuple *birthday = dict_find(iter, MESSAGE_KEY_BIRTHDAY);
+    s_events.birthday = birthday ? birthday->value->int32 : 0;
     persist_write_data(PERSIST_KEY_EVENTS, &s_events, sizeof(s_events));
     layer_mark_dirty(s_canvas);
   }

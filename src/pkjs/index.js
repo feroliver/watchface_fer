@@ -45,7 +45,7 @@ function sendNext() {
 function updateEvents() {
   var url = (settings().ICS_URL || '').trim().replace(/^webcal:\/\//i, 'https://');
   if (!url) {
-    send({ PREV_EVENT: 0, NEXT_EVENT: 0 });
+    send({ PREV_EVENT: 0, NEXT_EVENT: 0, BIRTHDAY: 0 });
     return;
   }
   var xhr = new XMLHttpRequest();
@@ -56,7 +56,10 @@ function updateEvents() {
     }
     try {
       var events = calendar.findPrevNext(xhr.responseText, new Date());
-      send({ PREV_EVENT: events.prev, NEXT_EVENT: events.next });
+      // Solo la fecha, nunca el nombre: sirve para verificar con pebble logs.
+      console.log('Cumpleaños: hoy ' + (events.birthday ? 'sí' : 'no') +
+        ', próximo ' + (events.nextBirthday || 'ninguno en 7 días'));
+      send({ PREV_EVENT: events.prev, NEXT_EVENT: events.next, BIRTHDAY: events.birthday });
     } catch (e) {
       console.log('Calendario inválido: ' + e.message);
     }

@@ -35,7 +35,8 @@
       "GLUCOSE_RED_HIGH",
       "ICS_URL",
       "LLU_EMAIL",
-      "LLU_PASSWORD"
+      "LLU_PASSWORD",
+      "BIRTHDAY"
     ],
     "resources": {
       "media": [

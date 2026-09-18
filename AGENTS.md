@@ -1,7 +1,8 @@
 # AGENTS.md — watchface_fer
 
 Watchface para Pebble Time 2 (plataforma `emery`, 200×228, color) en C + PebbleKit JS.
-Muestra fecha en castellano, hora, glucosa (LibreLinkUp), batería y eventos de Google Calendar.
+Muestra fecha en castellano, hora, glucosa (LibreLinkUp), batería, eventos de Google Calendar
+y una torta junto al día cuando hay un cumpleaños.
 La documentación para humanos (qué hace, historia, decisiones, setup) está en la nota de
 Obsidian del dueño: `/home/fer/Obsidian/fer_brain/Pebble/watchface_fer.md`.
 
@@ -39,8 +40,14 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
 - **Rangos de color de glucosa se reenvían con cada lectura** (`addRanges` en `index.js`), no
   solo al abrir/guardar: corrige un bug real donde el reloj quedó con umbrales viejos. Por eso
   el inbox del reloj es de 128 bytes (glucosa + 4 rangos en un mensaje).
-- **Horas de eventos siempre en 24 h** (`%H:%M`) aunque la hora principal respete 12/24 h:
-  en 12 h "6:00" sin AM/PM era ambiguo.
+- **Todas las horas en 24 h** (`%H:%M`, sin cero inicial), ignorando la configuración 12/24 h
+  del reloj: pedido explícito (en 12 h "6:00" de un evento sin AM/PM era ambiguo).
+- **Cumpleaños**: salen del mismo iCal del calendario principal. Google solo los incluye si en
+  el calendario "Cumpleaños" está activado "Sincronizar con <cuenta>" (si no, viven en Contactos
+  y no hay iCal). Se detectan como eventos de **día completo** cuyo título contiene
+  "cumplea"/"birthday" (`BIRTHDAY_RE` en `calendar.js`). El teléfono manda `BIRTHDAY` como
+  fecha `AAAAMMDD` (no un booleano): el reloj muestra la torta solo si coincide con hoy, así
+  desaparece a medianoche aunque no haya teléfono. Los nombres nunca se mandan ni se loguean.
 - **Eventos vía iCal y no Timeline**: el SDK no permite leer pins del Timeline.
 - **`ical.js` fijo en 1.x**: la 2.x es ESM y no funciona en pkjs.
 - **LibreLinkUp es una API no oficial** (referencias: nightscout-librelink-up, pylibrelinkup).

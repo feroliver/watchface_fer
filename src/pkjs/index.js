@@ -57,11 +57,12 @@ function updateEvents() {
     try {
       var events = calendar.findPrevNext(xhr.responseText, new Date());
       // Solo la fecha, nunca el nombre: sirve para verificar con pebble logs.
-      console.log('Cumpleaños: hoy ' + (events.birthday ? 'sí' : 'no') +
-        ', próximo ' + (events.nextBirthday || 'ninguno en 7 días'));
+      // Sin acentos: `pebble logs` corta el mensaje y se cae con UTF-8 incompleto.
+      console.log('Cumple: hoy ' + (events.birthday ? 'si' : 'no') +
+        ', proximo ' + (events.nextBirthday || 'ninguno en 7 dias'));
       send({ PREV_EVENT: events.prev, NEXT_EVENT: events.next, BIRTHDAY: events.birthday });
     } catch (e) {
-      console.log('Calendario inválido: ' + e.message);
+      console.log('Calendario invalido: ' + e.message);
     }
   };
   xhr.onerror = function () {

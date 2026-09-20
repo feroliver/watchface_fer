@@ -34,6 +34,8 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
   `src/pkjs`: probar la lógica con node.
 - Builds temporales para pruebas (host simulado, fecha forzada) se revierten antes de commitear.
 - Castellano: textos visibles, comentarios y mensajes de commit. Identificadores en inglés.
+- **Logs (`console.log` y `APP_LOG`) solo en ASCII**: con acentos o ñ, `pebble logs` corta el
+  mensaje y se cae con `UnicodeDecodeError`, y se pierde todo el stream.
 
 ## Decisiones no obvias (no "arreglarlas")
 
@@ -47,9 +49,12 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
   la glucosa. Cambiar los rangos en la config no hace vibrar por sí solo.
 - **Todas las horas en 24 h** (`%H:%M`, sin cero inicial), ignorando la configuración 12/24 h
   del reloj: pedido explícito (en 12 h "6:00" de un evento sin AM/PM era ambiguo).
-- **Cumpleaños**: salen del mismo iCal del calendario principal. Google solo los incluye si en
-  el calendario "Cumpleaños" está activado "Sincronizar con <cuenta>" (si no, viven en Contactos
-  y no hay iCal). Se detectan como eventos de **día completo** cuyo título contiene
+- **Cumpleaños**: ⚠️ **Google NO los exporta al iCal**, ni siquiera con "Sincronizar con
+  <cuenta>" activado en el calendario "Cumpleaños" (verificado 2026-09-20 con logs: el `.ics`
+  del calendario principal no trae ningún evento de día completo en la ventana, aunque la API
+  sí muestra los cumpleaños). Hace falta otra fuente (pendiente de decidir con Fer).
+  La detección actual, que queda para cuando los eventos sí estén en el iCal, busca eventos de
+  **día completo** cuyo título contiene
   "cumplea"/"birthday" (`BIRTHDAY_RE` en `calendar.js`). El teléfono manda `BIRTHDAY` como
   fecha `AAAAMMDD` (no un booleano): el reloj muestra la torta solo si coincide con hoy, así
   desaparece a medianoche aunque no haya teléfono. Los nombres nunca se mandan ni se loguean.

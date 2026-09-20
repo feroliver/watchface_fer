@@ -138,7 +138,7 @@ function login(credentials, host, callback, redirects) {
         return callback('login: hay que aceptar "' + data.step.type + '" en la app LibreLinkUp');
       }
       if (json.status !== 0 || !data.authTicket || !data.user) {
-        return callback('login: credenciales inválidas (status ' + json.status + ')');
+        return callback('login: credenciales invalidas (status ' + json.status + ')');
       }
       var auth = {
         host: host,

@@ -354,7 +354,7 @@ static void notify_zone_change(GlucoseZone old_zone, GlucoseZone new_zone) {
   if (new_zone == old_zone) {
     return;
   }
-  APP_LOG(APP_LOG_LEVEL_INFO, "Glucosa cambió de zona: %d -> %d", old_zone, new_zone);
+  APP_LOG(APP_LOG_LEVEL_INFO, "Glucosa cambio de zona: %d -> %d", old_zone, new_zone);
   if (new_zone == GLUCOSE_ZONE_RED) {
     vibes_double_pulse();
   } else {

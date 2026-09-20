@@ -36,7 +36,11 @@
       "ICS_URL",
       "LLU_EMAIL",
       "LLU_PASSWORD",
-      "BIRTHDAY"
+      "BIRTHDAY",
+      "ICS_URL_2",
+      "ICS_URL_3",
+      "ICS_URL_4",
+      "BIRTHDAY_URL"
     ],
     "resources": {
       "media": [

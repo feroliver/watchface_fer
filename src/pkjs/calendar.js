@@ -101,4 +101,25 @@ function findPrevNext(icsText, now) {
   };
 }
 
-module.exports = { findPrevNext: findPrevNext };
+// Combina los resultados de varios calendarios en uno solo: el evento anterior más reciente,
+// el próximo más cercano y el cumpleaños más cercano.
+function merge(results) {
+  var merged = { prev: 0, next: 0, birthday: 0, nextBirthday: 0 };
+  results.forEach(function (r) {
+    if (r.prev && r.prev > merged.prev) {
+      merged.prev = r.prev;
+    }
+    if (r.next && (merged.next === 0 || r.next < merged.next)) {
+      merged.next = r.next;
+    }
+    if (r.birthday) {
+      merged.birthday = r.birthday;
+    }
+    if (r.nextBirthday && (merged.nextBirthday === 0 || r.nextBirthday < merged.nextBirthday)) {
+      merged.nextBirthday = r.nextBirthday;
+    }
+  });
+  return merged;
+}
+
+module.exports = { findPrevNext: findPrevNext, merge: merge };

@@ -1,5 +1,17 @@
 // Página de configuración (Clay), se abre desde la app de Pebble del teléfono.
 
+function calendarInput(messageKey, label) {
+  return {
+    type: 'input',
+    messageKey: messageKey,
+    label: label,
+    attributes: {
+      type: 'url',
+      placeholder: 'https://calendar.google.com/calendar/ical/.../basic.ics'
+    }
+  };
+}
+
 function rangeInput(messageKey, label, defaultValue) {
   return {
     type: 'input',
@@ -28,13 +40,33 @@ module.exports = [
           '(calendar.google.com → Configuración → tu calendario → Integrar el calendario). ' +
           'Se guarda solo en este teléfono.'
       },
+      calendarInput('ICS_URL', 'Enlace iCal'),
+      calendarInput('ICS_URL_2', 'Otro calendario (opcional)'),
+      calendarInput('ICS_URL_3', 'Otro calendario (opcional)'),
+      calendarInput('ICS_URL_4', 'Otro calendario (opcional)')
+    ]
+  },
+  {
+    type: 'section',
+    items: [
+      {
+        type: 'heading',
+        defaultValue: 'Cumpleaños'
+      },
+      {
+        type: 'text',
+        defaultValue: 'Google no incluye los cumpleaños en el enlace iCal. Para ver la torta ' +
+          'en el reloj hay que publicar el script <b>tools/cumples.gs</b> del proyecto como ' +
+          'aplicación web y pegar acá su URL (con el <i>token</i>). Si se deja vacío, los ' +
+          'cumpleaños solo salen si algún calendario de arriba los trae como eventos.'
+      },
       {
         type: 'input',
-        messageKey: 'ICS_URL',
-        label: 'Enlace iCal',
+        messageKey: 'BIRTHDAY_URL',
+        label: 'URL del script',
         attributes: {
           type: 'url',
-          placeholder: 'https://calendar.google.com/calendar/ical/.../basic.ics'
+          placeholder: 'https://script.google.com/macros/s/.../exec?t=...'
         }
       }
     ]

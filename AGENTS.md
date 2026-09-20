@@ -49,15 +49,26 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
   la glucosa. Cambiar los rangos en la config no hace vibrar por sí solo.
 - **Todas las horas en 24 h** (`%H:%M`, sin cero inicial), ignorando la configuración 12/24 h
   del reloj: pedido explícito (en 12 h "6:00" de un evento sin AM/PM era ambiguo).
+- **Varios calendarios**: hasta 4 enlaces iCal (`ICS_URL`, `ICS_URL_2..4`). El teléfono pide
+  todos y combina con `calendar.merge`: evento anterior más reciente y próximo más cercano.
+  Un calendario que falle se saltea (los demás igual se muestran).
 - **Cumpleaños**: ⚠️ **Google NO los exporta al iCal**, ni siquiera con "Sincronizar con
-  <cuenta>" activado en el calendario "Cumpleaños" (verificado 2026-09-20 con logs: el `.ics`
-  del calendario principal no trae ningún evento de día completo en la ventana, aunque la API
-  sí muestra los cumpleaños). Hace falta otra fuente (pendiente de decidir con Fer).
-  La detección actual, que queda para cuando los eventos sí estén en el iCal, busca eventos de
-  **día completo** cuyo título contiene
-  "cumplea"/"birthday" (`BIRTHDAY_RE` en `calendar.js`). El teléfono manda `BIRTHDAY` como
-  fecha `AAAAMMDD` (no un booleano): el reloj muestra la torta solo si coincide con hoy, así
-  desaparece a medianoche aunque no haya teléfono. Los nombres nunca se mandan ni se loguean.
+  <cuenta>" activado en el calendario "Cumpleaños" (verificado 2026-09-20 con logs). Por eso
+  se usa `tools/cumples.gs`: un Apps Script en la cuenta del dueño, publicado como aplicación
+  web, que lee los eventos `eventTypes: ['birthday']` de la API de Calendar y responde
+  `{"birthday": AAAAMMDD, "nextBirthday": AAAAMMDD}` (0 = no hay), sin nombres. Su URL (con
+  token) va en `BIRTHDAY_URL`. Si está configurada, manda sobre lo que digan los iCal.
+  Detección de respaldo en los iCal: eventos de **día completo** cuyo título contiene
+  "cumplea"/"birthday" (`BIRTHDAY_RE` en `calendar.js`), para cuando el calendario sí los trae.
+  El teléfono manda `BIRTHDAY` como fecha `AAAAMMDD` (no un booleano): el reloj muestra la torta
+  solo si coincide con hoy, así desaparece a medianoche aunque no haya teléfono.
+- **Plugin de calendario de la app** (futuro): la app nueva trae un `CalendarPlugin`
+  (`Pebble.subscribeToSource({category:'calendar', item:'event'})`) con los próximos eventos de
+  **todos** los calendarios, cumpleaños incluidos, sin iCal. Hoy no sirve: el registro de
+  plugins está detrás del flag `enablePlugins`, apagado (el teléfono responde
+  `PLUGIN_UNAVAILABLE`). Cuando se habilite, reemplaza iCal + script (pero solo da eventos
+  futuros: el "anterior" seguiría necesitando iCal). Requiere `"usesPermissions": ["Calendar"]`
+  en `package.json`.
 - **Eventos vía iCal y no Timeline**: el SDK no permite leer pins del Timeline.
 - **`ical.js` fijo en 1.x**: la 2.x es ESM y no funciona en pkjs.
 - **LibreLinkUp es una API no oficial** (referencias: nightscout-librelink-up, pylibrelinkup).

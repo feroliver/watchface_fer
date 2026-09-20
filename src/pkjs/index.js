@@ -42,35 +42,90 @@ function sendNext() {
 
 // ── Calendario ───────────────────────────────────────────────────────────────────
 
-function updateEvents() {
-  var url = (settings().ICS_URL || '').trim().replace(/^webcal:\/\//i, 'https://');
-  if (!url) {
-    send({ PREV_EVENT: 0, NEXT_EVENT: 0, BIRTHDAY: 0 });
-    return;
-  }
+// Varios calendarios: se pide cada iCal y se combinan los resultados. Los cumpleaños salen
+// del script de Apps Script si está configurado (Google no los exporta al iCal), y si no, de
+// los propios calendarios.
+function calendarUrls() {
+  var s = settings();
+  return ['ICS_URL', 'ICS_URL_2', 'ICS_URL_3', 'ICS_URL_4'].map(function (key) {
+    return (s[key] || '').trim().replace(/^webcal:\/\//i, 'https://');
+  }).filter(function (url) {
+    return url;
+  });
+}
+
+function fetchText(url, onText, onDone) {
   var xhr = new XMLHttpRequest();
   xhr.onload = function () {
-    if (xhr.status !== 200) {
+    if (xhr.status === 200) {
+      onText(xhr.responseText);
+    } else {
       console.log('Calendario: HTTP ' + xhr.status);
-      return;
     }
-    try {
-      var events = calendar.findPrevNext(xhr.responseText, new Date());
-      // Solo la fecha, nunca el nombre: sirve para verificar con pebble logs.
-      // Sin acentos: `pebble logs` corta el mensaje y se cae con UTF-8 incompleto.
-      console.log('Cumple: hoy ' + (events.birthday ? 'si' : 'no') +
-        ', proximo ' + (events.nextBirthday || 'ninguno en 7 dias'));
-      send({ PREV_EVENT: events.prev, NEXT_EVENT: events.next, BIRTHDAY: events.birthday });
-    } catch (e) {
-      console.log('Calendario invalido: ' + e.message);
-    }
+    onDone();
   };
   xhr.onerror = function () {
     console.log('Calendario: error de red');
+    onDone();
   };
-  // No loguear la URL: es secreta.
+  // No loguear las URLs: son secretas.
   xhr.open('GET', url);
   xhr.send();
+}
+
+function updateEvents() {
+  var urls = calendarUrls();
+  var birthdayUrl = (settings().BIRTHDAY_URL || '').trim();
+  if (urls.length === 0 && !birthdayUrl) {
+    send({ PREV_EVENT: 0, NEXT_EVENT: 0, BIRTHDAY: 0 });
+    return;
+  }
+
+  var now = new Date();
+  var results = [];
+  var fromScript = null;
+  var pending = urls.length + (birthdayUrl ? 1 : 0);
+
+  function finish() {
+    if (--pending > 0) {
+      return;
+    }
+    var events = calendar.merge(results);
+    if (fromScript) {
+      events.birthday = fromScript.birthday || 0;
+      events.nextBirthday = fromScript.nextBirthday || 0;
+    }
+    // Solo fechas, nunca nombres. Sin acentos: `pebble logs` se cae con UTF-8 cortado.
+    console.log('Calendarios: ' + results.length + '/' + urls.length + ' | cumple hoy ' +
+      (events.birthday ? 'si' : 'no') + ', proximo ' + (events.nextBirthday || 'ninguno') +
+      (birthdayUrl ? (fromScript ? ' (script)' : ' (script fallo)') : ''));
+    send({ PREV_EVENT: events.prev, NEXT_EVENT: events.next, BIRTHDAY: events.birthday });
+  }
+
+  urls.forEach(function (url) {
+    fetchText(url, function (text) {
+      try {
+        results.push(calendar.findPrevNext(text, now));
+      } catch (e) {
+        console.log('Calendario invalido: ' + e.message);
+      }
+    }, finish);
+  });
+
+  if (birthdayUrl) {
+    fetchText(birthdayUrl, function (text) {
+      try {
+        var parsed = JSON.parse(text);
+        if (parsed && !parsed.error) {
+          fromScript = parsed;
+        } else {
+          console.log('Cumples: el script respondio ' + (parsed && parsed.error));
+        }
+      } catch (e) {
+        console.log('Cumples: respuesta invalida del script');
+      }
+    }, finish);
+  }
 }
 
 // ── Glucosa ──────────────────────────────────────────────────────────────────────

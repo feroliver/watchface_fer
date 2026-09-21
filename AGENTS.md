@@ -47,6 +47,13 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
   (`GLUCOSE_TIME` distinto del guardado) y habiendo una previa; compara ambas lecturas con los
   **rangos actuales**, por eso en `inbox_received_handler` los rangos se aplican **antes** que
   la glucosa. Cambiar los rangos en la config no hace vibrar por sí solo.
+- **Alerta de teléfono perdido**: al cortarse el Bluetooth (`connection_service`), pantalla
+  completa 30 s (`ALERT_SECONDS`) + 5 ráfagas de vibración cada 10 s, y **marco rojo** mientras
+  siga desconectado. Tres pantallas (HAL 9000, Matrix, Blade Runner) que **rotan en cada
+  desconexión**: se dibuja `s_alert_style` y en `persist` queda guardado el siguiente, que se
+  aplica al terminar el aviso o al reconectar. Textos con fuentes del sistema (las Russo tienen
+  `characterRegex` y no traen espacios ni minúsculas). En el emulador `emu-bt-connection` tarda
+  varios segundos en llegar: para probar, sacar capturas en serie.
 - **Todas las horas en 24 h** (`%H:%M`, sin cero inicial), ignorando la configuración 12/24 h
   del reloj: pedido explícito (en 12 h "6:00" de un evento sin AM/PM era ambiguo).
 - **Varios calendarios**: hasta 4 enlaces iCal (`ICS_URL`, `ICS_URL_2..4`). El teléfono pide

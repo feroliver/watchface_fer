@@ -26,6 +26,11 @@
 #define PERSIST_KEY_EVENTS 2
 #define PERSIST_KEY_GLUCOSE 3
 #define PERSIST_KEY_RANGES 4
+#define PERSIST_KEY_ALERT_STYLE 5
+#define ALERT_SECONDS 30           // pantalla completa tras perder el teléfono
+#define ALERT_VIBE_COUNT 5         // ráfagas de vibración
+#define ALERT_VIBE_INTERVAL_MS 10000
+#define ALERT_STYLES 3
 #define EVENTS_REFRESH_MIN 30
 #define GLUCOSE_REFRESH_MIN 2
 #define GLUCOSE_STALE_S (10 * 60)  // lectura más vieja que esto: "G ---"
@@ -67,6 +72,11 @@ static struct tm s_now;
 static BatteryChargeState s_battery;
 static Glucose s_glucose;
 static GlucoseRanges s_ranges = { 50, 80, 130, 250 };
+static bool s_connected = true;
+static time_t s_alert_until = 0;   // fin de la pantalla completa
+static int s_alert_style = 0;      // rota entre las 3 pantallas en cada desconexión
+static AppTimer *s_alert_timer = NULL;
+static int s_alert_vibes_left = 0;
 static Events s_events;
 
 // ── Dibujo ────────────────────────────────────────────────────────────────────
@@ -293,14 +303,117 @@ static void draw_events(GContext *ctx, GRect area) {
                  s_events.next, false);
 }
 
+
+// ── Alerta de teléfono perdido ────────────────────────────────────────────────
+
+static bool alert_is_showing(void) {
+  return !s_connected && s_alert_until != 0 && time(NULL) < s_alert_until;
+}
+
+static void alert_text(GContext *ctx, const char *text, const char *font_key, int y, int h,
+                       GColor color) {
+  graphics_context_set_text_color(ctx, color);
+  graphics_draw_text(ctx, text, fonts_get_system_font(font_key), GRect(0, y, 200, h),
+                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+}
+
+static void alert_clock(GContext *ctx, int y, GColor color) {
+  char time_str[6];
+  strftime(time_str, sizeof(time_str), "%H:%M", &s_now);
+  alert_text(ctx, time_str, FONT_KEY_GOTHIC_24_BOLD, y, 28, color);
+}
+
+// 2001: el ojo de HAL 9000.
+static void draw_alert_hal(GContext *ctx) {
+  graphics_context_set_fill_color(ctx, GColorDarkCandyAppleRed);
+  graphics_fill_circle(ctx, GPoint(100, 74), 46);
+  graphics_context_set_fill_color(ctx, GColorRed);
+  graphics_fill_circle(ctx, GPoint(100, 74), 34);
+  graphics_context_set_fill_color(ctx, GColorOrange);
+  graphics_fill_circle(ctx, GPoint(100, 74), 14);
+  graphics_context_set_fill_color(ctx, GColorIcterine);
+  graphics_fill_circle(ctx, GPoint(100, 74), 6);
+  alert_text(ctx, "LO SIENTO, FER", FONT_KEY_GOTHIC_24_BOLD, 132, 30, GColorWhite);
+  alert_text(ctx, "PERDÍ EL TELÉFONO", FONT_KEY_GOTHIC_18, 162, 24, GColorLightGray);
+  alert_clock(ctx, 190, GColorDarkGray);
+}
+
+// Matrix: lluvia de caracteres con el aviso en el medio.
+static void draw_alert_matrix(GContext *ctx) {
+  static const char *const GLYPHS[] = { "0", "1", "7", "4", "X", "K", "9", "2", "F", "A" };
+  uint32_t seed = (uint32_t)s_now.tm_min * 7919 + 12345;
+  for (int col = 0; col < 12; col++) {
+    seed = seed * 1103515245 + 12345;
+    int start = (int)((seed >> 16) % 120) - 60;
+    int len = 6 + (int)((seed >> 8) % 8);
+    for (int i = 0; i < len; i++) {
+      int y = start + i * 18;
+      if (y < -18 || y > 228) {
+        continue;
+      }
+      seed = seed * 1103515245 + 12345;
+      GColor color = (i == len - 1) ? GColorWhite
+                   : (i > len - 4) ? GColorGreen : GColorIslamicGreen;
+      graphics_context_set_text_color(ctx, color);
+      graphics_draw_text(ctx, GLYPHS[(seed >> 16) % 10], fonts_get_system_font(FONT_KEY_GOTHIC_18),
+                         GRect(col * 17 + 2, y, 16, 20), GTextOverflowModeFill,
+                         GTextAlignmentCenter, NULL);
+    }
+  }
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, GRect(6, 84, 188, 76), 0, GCornerNone);
+  graphics_context_set_stroke_color(ctx, GColorGreen);
+  graphics_context_set_stroke_width(ctx, 2);
+  graphics_draw_rect(ctx, GRect(6, 84, 188, 76));
+  alert_text(ctx, "SIN SEÑAL", FONT_KEY_GOTHIC_24_BOLD, 90, 28, GColorGreen);
+  alert_text(ctx, "TELÉFONO FUERA DE RANGO", FONT_KEY_GOTHIC_14, 118, 20, GColorGreen);
+  alert_clock(ctx, 134, GColorGreen);
+}
+
+// Blade Runner: ámbar sobre negro con scanlines.
+static void draw_alert_blade(GContext *ctx) {
+  graphics_context_set_stroke_color(ctx, GColorArmyGreen);
+  graphics_context_set_stroke_width(ctx, 1);
+  for (int y = 0; y < 228; y += 6) {
+    graphics_draw_line(ctx, GPoint(0, y), GPoint(200, y));
+  }
+  graphics_context_set_stroke_color(ctx, GColorChromeYellow);
+  graphics_context_set_stroke_width(ctx, 3);
+  graphics_draw_rect(ctx, GRect(8, 44, 184, 118));
+  alert_text(ctx, "ENLACE", FONT_KEY_GOTHIC_24_BOLD, 54, 30, GColorChromeYellow);
+  alert_text(ctx, "PERDIDO", FONT_KEY_BITHAM_30_BLACK, 82, 36, GColorYellow);
+  alert_text(ctx, "SIN TELÉFONO", FONT_KEY_GOTHIC_18, 126, 24, GColorChromeYellow);
+  alert_clock(ctx, 168, GColorChromeYellow);
+  alert_text(ctx, "> REVISAR SISTEMA_", FONT_KEY_GOTHIC_14, 200, 20, GColorChromeYellow);
+}
+
+static void draw_alert(GContext *ctx) {
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, GRect(0, 0, 200, 228), 0, GCornerNone);
+  switch (s_alert_style) {
+    case 1: draw_alert_matrix(ctx); break;
+    case 2: draw_alert_blade(ctx); break;
+    default: draw_alert_hal(ctx); break;
+  }
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
+  if (alert_is_showing()) {
+    draw_alert(ctx);
+    return;
+  }
   graphics_context_set_text_color(ctx, SKIN_PRIMARY);
   graphics_context_set_stroke_color(ctx, SKIN_PRIMARY);
   graphics_context_set_fill_color(ctx, SKIN_PRIMARY);
 
+  // Marco rojo: recordatorio discreto de que el teléfono sigue sin conexión.
   graphics_context_set_stroke_width(ctx, 4);
+  if (!s_connected) {
+    graphics_context_set_stroke_color(ctx, GColorRed);
+  }
   graphics_draw_round_rect(ctx, GRect(2, 2, bounds.size.w - 4, bounds.size.h - 4), 16);
+  graphics_context_set_stroke_color(ctx, SKIN_PRIMARY);
 
   int inner_w = bounds.size.w - 2 * MARGIN;
   int bottom_y = bounds.size.h - MARGIN - BOTTOM_H;
@@ -360,6 +473,64 @@ static void notify_zone_change(GlucoseZone old_zone, GlucoseZone new_zone) {
   } else {
     vibes_short_pulse();
   }
+}
+
+// Al terminar el aviso queda listo el estilo siguiente (guardado en persist).
+static void alert_end_callback(void *data);
+
+static void alert_advance_style(void) {
+  if (persist_exists(PERSIST_KEY_ALERT_STYLE)) {
+    s_alert_style = persist_read_int(PERSIST_KEY_ALERT_STYLE);
+  }
+}
+
+static void alert_vibe_callback(void *data) {
+  s_alert_timer = NULL;
+  if (s_connected || s_alert_vibes_left <= 0) {
+    return;
+  }
+  s_alert_vibes_left--;
+  static const uint32_t SEGMENTS[] = { 300, 120, 300, 120, 600 };
+  VibePattern pattern = { .durations = SEGMENTS, .num_segments = ARRAY_LENGTH(SEGMENTS) };
+  vibes_enqueue_custom_pattern(pattern);
+  layer_mark_dirty(s_canvas);
+  if (s_alert_vibes_left > 0) {
+    s_alert_timer = app_timer_register(ALERT_VIBE_INTERVAL_MS, alert_vibe_callback, NULL);
+  } else {
+    // Último aviso: al vencer la pantalla completa se redibuja y rota el estilo.
+    s_alert_timer = app_timer_register(ALERT_SECONDS * 1000, alert_end_callback, NULL);
+  }
+}
+
+static void alert_end_callback(void *data) {
+  s_alert_timer = NULL;
+  alert_advance_style();
+  layer_mark_dirty(s_canvas);
+}
+
+static void connection_handler(bool connected) {
+  if (connected == s_connected) {
+    return;
+  }
+  s_connected = connected;
+  if (s_alert_timer) {
+    app_timer_cancel(s_alert_timer);
+    s_alert_timer = NULL;
+  }
+  if (connected) {
+    if (s_alert_until != 0) {
+      alert_advance_style();
+    }
+    s_alert_until = 0;
+    vibes_double_pulse();
+  } else {
+    // Se muestra el estilo actual y queda guardado el siguiente: rota en cada desconexión.
+    persist_write_int(PERSIST_KEY_ALERT_STYLE, (s_alert_style + 1) % ALERT_STYLES);
+    s_alert_until = time(NULL) + ALERT_SECONDS;
+    s_alert_vibes_left = ALERT_VIBE_COUNT;
+    alert_vibe_callback(NULL);
+  }
+  layer_mark_dirty(s_canvas);
 }
 
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
@@ -437,6 +608,10 @@ static void init(void) {
   if (persist_exists(PERSIST_KEY_RANGES)) {
     persist_read_data(PERSIST_KEY_RANGES, &s_ranges, sizeof(s_ranges));
   }
+  if (persist_exists(PERSIST_KEY_ALERT_STYLE)) {
+    s_alert_style = persist_read_int(PERSIST_KEY_ALERT_STYLE);
+  }
+  s_connected = connection_service_peek_pebble_app_connection();
 
   s_window = window_create();
   window_set_background_color(s_window, SKIN_BACKGROUND);
@@ -448,6 +623,9 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   battery_state_service_subscribe(battery_handler);
+  connection_service_subscribe((ConnectionHandlers) {
+    .pebble_app_connection_handler = connection_handler,
+  });
   app_message_register_inbox_received(inbox_received_handler);
   // Entrante más grande: glucosa + rangos (7 enteros) llegan en un solo mensaje.
   app_message_open(128, 32);
@@ -456,6 +634,10 @@ static void init(void) {
 static void deinit(void) {
   tick_timer_service_unsubscribe();
   battery_state_service_unsubscribe();
+  connection_service_unsubscribe();
+  if (s_alert_timer) {
+    app_timer_cancel(s_alert_timer);
+  }
   app_message_deregister_callbacks();
   window_destroy(s_window);
   fonts_unload_custom_font(s_font_time);

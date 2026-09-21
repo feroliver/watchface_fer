@@ -94,6 +94,9 @@ Entorno: `pebble-tool` (instalado con `uv tool install pebble-tool`), SDK 4.33.1
   `logs` en curso). `pebble install --cloudpebble --logs` falla (`AttributeError: sourcemap`).
   Con salida por pipe usar `PYTHONUNBUFFERED=1`.
 - La app Pebble de Android (libpebble3) manda los números de `sendAppMessage` como `int32`.
+- El ícono del `.pbw` (`menuIcon: true` en los recursos) no puede pasar de **25×25 px** o el
+  build falla. La miniatura que muestra la app del teléfono en la lista de watchfaces sale del
+  appstore (`screenshotImageUrl`), no del pbw: una app sideloaded no puede tenerla.
 
 ## Probar sin reloj ni APIs reales
 

@@ -493,6 +493,7 @@ static void alert_vibe_callback(void *data) {
   static const uint32_t SEGMENTS[] = { 300, 120, 300, 120, 600 };
   VibePattern pattern = { .durations = SEGMENTS, .num_segments = ARRAY_LENGTH(SEGMENTS) };
   vibes_enqueue_custom_pattern(pattern);
+  light_enable_interaction();  // que se vea la pantalla cuando vibra
   layer_mark_dirty(s_canvas);
   if (s_alert_vibes_left > 0) {
     s_alert_timer = app_timer_register(ALERT_VIBE_INTERVAL_MS, alert_vibe_callback, NULL);
